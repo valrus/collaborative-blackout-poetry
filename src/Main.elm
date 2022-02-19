@@ -3,6 +3,7 @@ module Main exposing (..)
 import Browser
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
+import Ports exposing (..)
 
 
 
@@ -37,22 +38,28 @@ type alias Text =
     List TextLine
 
 
-type GameState
+type TurnState
+    = TurnOver
+    | Actions Int
+
+
+type GamePhase
     = NotStarted
     | ShowingConnectionOptions
-    | InGame
+    | InGame TurnState
+    | GameOver
 
 
 type alias Model =
     { isHost : Bool
-    , gameState : GameState
+    , gamePhase : GamePhase
     , text : Text
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { isHost = False, gameState = NotStarted, text = [] }, Cmd.none )
+    ( { isHost = False, gamePhase = NotStarted, text = [] }, Cmd.none )
 
 
 
@@ -68,10 +75,10 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         StartGame ->
-            ( { model | isHost = True, gameState = ShowingConnectionOptions }, Cmd.none )
+            ( { model | isHost = True, gamePhase = ShowingConnectionOptions }, Cmd.none )
 
         ConnectToGame ->
-            ( { model | isHost = False, gameState = ShowingConnectionOptions }, Cmd.none )
+            ( { model | isHost = False, gamePhase = ShowingConnectionOptions }, Cmd.none )
 
 
 
@@ -96,14 +103,17 @@ viewConnectionOptions model =
 
 view : Model -> Html Msg
 view model =
-    case model.gameState of
+    case model.gamePhase of
         NotStarted ->
             viewIntro model
 
         ShowingConnectionOptions ->
             viewIntro model
 
-        InGame ->
+        InGame _ ->
+            viewIntro model
+
+        GameOver ->
             viewIntro model
 
 
