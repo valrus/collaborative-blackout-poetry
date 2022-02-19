@@ -15,8 +15,22 @@
         function startConnection() {
             // https://jameshfisher.com/2017/01/16/tiny-serverless-webrtc/
             var RTCPeerConnection = window.RTCPeerConnection || webkitRTCPeerConnection || mozRTCPeerConnection;
-            var peerConn = new RTCPeerConnection({'iceServers': [{'urls': ['stun:stun.l.google.com:19302']}]});
+            var peerConnection = new RTCPeerConnection({'iceServers': [{'urls': ['stun:stun.l.google.com:19302']}]});
+            return peerConnection
         }
+
+        app.ports.startHosting.subscribe((args) => {
+            var peerConnection = startConnection();
+            /* TODO: There’s an optional second argument: an RTCDataChannelInit dictionary,
+                where we can configure the semantics of the channel (whether it’s ordered or reliable). */
+            var dataChannel = peerConnection.createDataChannel('blackout-poems');
+            peerConnection.onicecandidate = (e) => {
+                if (e.candidate == null) {
+                    app.ports.connectionDescription.send(JSON.stringify(peerConnection.localDescription));
+                }
+            };
+            peerConnection.createOffer({});
+        });
     </script>
 </body>
 </html>
