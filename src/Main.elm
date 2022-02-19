@@ -5,9 +5,6 @@ import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
 import Json.Decode as D
 import Ports
-import Random
-import Random.Char
-import Random.String
 
 
 
@@ -47,34 +44,39 @@ type TurnState
     | Actions Int
 
 
-type alias HostId =
+type alias GameId =
+    String
+
+
+type alias ConnectionId =
     String
 
 
 type GamePhase
     = NotStarted
-    | ShowingHostOptions HostId
+    | ShowingHostOptions
     | ShowingConnectionOptions
     | InGame TurnState
     | GameOver
 
 
+type GameRole
+    = Host
+    | Guest GameId
+
+
 type alias Model =
-    { isHost : Bool
-    , connectionId : Maybe HostId
+    { gameId : GameId
+    , gameRole : Maybe GameRole
     , gamePhase : GamePhase
     , text : Text
     }
 
 
-randomGameId =
-    Random.String.string 20 Random.Char.english
-
-
-init : ( Model, Cmd Msg )
-init =
-    ( { isHost = False, connectionId = Nothing, gamePhase = NotStarted, text = [] }
-    , Random.generate SetGameId randomGameId
+init : String -> ( Model, Cmd Msg )
+init gameId =
+    ( { gameId = gameId, gameRole = Nothing, gamePhase = NotStarted, text = [] }
+    , Cmd.none
     )
 
 
@@ -83,10 +85,10 @@ init =
 
 
 type Msg
-    = SetGameId
-    | InitHostGame
-    | InitGuestGame HostId
-    | ShowHostOptions HostId
+    = InitHostGame
+    | InitGuestGame GameId
+    | ConnectedAsGuest GameId
+    | ShowHostOptions
     | StartGame
 
 
@@ -94,14 +96,20 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         InitHostGame ->
-            ( { model | isHost = True, gamePhase = ShowingHostOptions }
-            , Ports.startHosting ()
+            ( { model | gameRole = Just Host, gamePhase = ShowingHostOptions }
+            , Cmd.none
             )
 
         InitGuestGame hostId ->
-            ( { model | isHost = False, gamePhase = ShowingConnectionOptions }
+            ( { model | gameRole = Just (Guest hostId), gamePhase = ShowingConnectionOptions }
             , Ports.connectToHost hostId
             )
+
+        ShowHostOptions ->
+            ( { model | gamePhase = ShowingHostOptions }, Cmd.none )
+
+        StartGame ->
+            ( model, Cmd.none )
 
 
 
@@ -118,14 +126,12 @@ viewIntro model =
 
 viewHostOptions : String -> Html Msg
 viewHostOptions hostId =
-    div []
-        [ button [ onClick HostGame ] [ text hostId ] ]
+    div [] [ text hostId ]
 
 
 viewConnectionOptions : Html Msg
 viewConnectionOptions =
-    div []
-        [ button [ onClick HostGame ] [ text "Connection options" ] ]
+    div [] [ text "Connection options" ]
 
 
 view : Model -> Html Msg
@@ -134,8 +140,8 @@ view model =
         NotStarted ->
             viewIntro model
 
-        ShowingHostOptions hostId ->
-            viewHostOptions hostId
+        ShowingHostOptions ->
+            viewHostOptions model.gameId
 
         ShowingConnectionOptions ->
             viewConnectionOptions
@@ -153,5 +159,4 @@ view model =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.batch
-        [ Ports.connectionDescription (SetPeerId << D.decodeValue D.string) ]
+    Sub.none
