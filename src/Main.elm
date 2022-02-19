@@ -3,6 +3,8 @@ module Main exposing (..)
 import Browser
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
+import Json.Decode as D
+import Ports
 
 
 
@@ -37,22 +39,45 @@ type alias Text =
     List TextLine
 
 
-type GameState
+type TurnState
+    = TurnOver
+    | Actions Int
+
+
+type alias GameId =
+    String
+
+
+type alias ConnectionId =
+    String
+
+
+type GamePhase
     = NotStarted
+    | ShowingHostOptions
     | ShowingConnectionOptions
-    | InGame
+    | InGame TurnState
+    | GameOver
+
+
+type GameRole
+    = Host
+    | Guest GameId
 
 
 type alias Model =
-    { isHost : Bool
-    , gameState : GameState
+    { gameId : GameId
+    , gameRole : Maybe GameRole
+    , gamePhase : GamePhase
     , text : Text
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( { isHost = False, gameState = NotStarted, text = [] }, Cmd.none )
+init : String -> ( Model, Cmd Msg )
+init gameId =
+    ( { gameId = gameId, gameRole = Nothing, gamePhase = NotStarted, text = [] }
+    , Cmd.none
+    )
 
 
 
@@ -60,18 +85,31 @@ init _ =
 
 
 type Msg
-    = StartGame
-    | ConnectToGame
+    = InitHostGame
+    | InitGuestGame GameId
+    | ConnectedAsGuest GameId
+    | ShowHostOptions
+    | StartGame
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        StartGame ->
-            ( { model | isHost = True, gameState = ShowingConnectionOptions }, Cmd.none )
+        InitHostGame ->
+            ( { model | gameRole = Just Host, gamePhase = ShowingHostOptions }
+            , Cmd.none
+            )
 
-        ConnectToGame ->
-            ( { model | isHost = False, gameState = ShowingConnectionOptions }, Cmd.none )
+        InitGuestGame hostId ->
+            ( { model | gameRole = Just (Guest hostId), gamePhase = ShowingConnectionOptions }
+            , Ports.connectToHost hostId
+            )
+
+        ShowHostOptions ->
+            ( { model | gamePhase = ShowingHostOptions }, Cmd.none )
+
+        StartGame ->
+            ( model, Cmd.none )
 
 
 
@@ -81,29 +119,37 @@ update msg model =
 viewIntro : Model -> Html Msg
 viewIntro model =
     div []
-        [ button [ onClick StartGame ] [ text "Start game" ]
-        , button [ onClick ConnectToGame ] [ text "Connect to game" ]
+        [ button [ onClick ShowHostOptions ] [ text "Host game" ]
+        , button [ onClick (InitGuestGame "") ] [ text "Connect to game" ]
         ]
 
 
-viewConnectionOptions : Model -> Html Msg
-viewConnectionOptions model =
-    div []
-        [ button [ onClick StartGame ] [ text "Start game" ]
-        , button [ onClick ConnectToGame ] [ text "Connect to game" ]
-        ]
+viewHostOptions : String -> Html Msg
+viewHostOptions hostId =
+    div [] [ text hostId ]
+
+
+viewConnectionOptions : Html Msg
+viewConnectionOptions =
+    div [] [ text "Connection options" ]
 
 
 view : Model -> Html Msg
 view model =
-    case model.gameState of
+    case model.gamePhase of
         NotStarted ->
             viewIntro model
 
+        ShowingHostOptions ->
+            viewHostOptions model.gameId
+
         ShowingConnectionOptions ->
+            viewConnectionOptions
+
+        InGame _ ->
             viewIntro model
 
-        InGame ->
+        GameOver ->
             viewIntro model
 
 
