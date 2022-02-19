@@ -1,2 +1,7 @@
-/elm-stuff/
-main.js
+elm-stuff/
+dist/
+node_modules/
+.DS_Store
+.parcel-cache
+/.tool-versions
+/yarn-error.log

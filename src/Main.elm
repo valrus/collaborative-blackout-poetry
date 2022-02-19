@@ -3,7 +3,11 @@ module Main exposing (..)
 import Browser
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
-import Ports exposing (..)
+import Json.Decode as D
+import Ports
+import Random
+import Random.Char
+import Random.String
 
 
 
@@ -43,8 +47,13 @@ type TurnState
     | Actions Int
 
 
+type alias HostId =
+    String
+
+
 type GamePhase
     = NotStarted
+    | ShowingHostOptions HostId
     | ShowingConnectionOptions
     | InGame TurnState
     | GameOver
@@ -52,14 +61,21 @@ type GamePhase
 
 type alias Model =
     { isHost : Bool
+    , connectionId : Maybe HostId
     , gamePhase : GamePhase
     , text : Text
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( { isHost = False, gamePhase = NotStarted, text = [] }, Cmd.none )
+randomGameId =
+    Random.String.string 20 Random.Char.english
+
+
+init : ( Model, Cmd Msg )
+init =
+    ( { isHost = False, connectionId = Nothing, gamePhase = NotStarted, text = [] }
+    , Random.generate SetGameId randomGameId
+    )
 
 
 
@@ -67,18 +83,25 @@ init _ =
 
 
 type Msg
-    = StartGame
-    | ConnectToGame
+    = SetGameId
+    | InitHostGame
+    | InitGuestGame HostId
+    | ShowHostOptions HostId
+    | StartGame
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        StartGame ->
-            ( { model | isHost = True, gamePhase = ShowingConnectionOptions }, Cmd.none )
+        InitHostGame ->
+            ( { model | isHost = True, gamePhase = ShowingHostOptions }
+            , Ports.startHosting ()
+            )
 
-        ConnectToGame ->
-            ( { model | isHost = False, gamePhase = ShowingConnectionOptions }, Cmd.none )
+        InitGuestGame hostId ->
+            ( { model | isHost = False, gamePhase = ShowingConnectionOptions }
+            , Ports.connectToHost hostId
+            )
 
 
 
@@ -88,17 +111,21 @@ update msg model =
 viewIntro : Model -> Html Msg
 viewIntro model =
     div []
-        [ button [ onClick StartGame ] [ text "Start game" ]
-        , button [ onClick ConnectToGame ] [ text "Connect to game" ]
+        [ button [ onClick ShowHostOptions ] [ text "Host game" ]
+        , button [ onClick (InitGuestGame "") ] [ text "Connect to game" ]
         ]
 
 
-viewConnectionOptions : Model -> Html Msg
-viewConnectionOptions model =
+viewHostOptions : String -> Html Msg
+viewHostOptions hostId =
     div []
-        [ button [ onClick StartGame ] [ text "Start game" ]
-        , button [ onClick ConnectToGame ] [ text "Connect to game" ]
-        ]
+        [ button [ onClick HostGame ] [ text hostId ] ]
+
+
+viewConnectionOptions : Html Msg
+viewConnectionOptions =
+    div []
+        [ button [ onClick HostGame ] [ text "Connection options" ] ]
 
 
 view : Model -> Html Msg
@@ -107,8 +134,11 @@ view model =
         NotStarted ->
             viewIntro model
 
+        ShowingHostOptions hostId ->
+            viewHostOptions hostId
+
         ShowingConnectionOptions ->
-            viewIntro model
+            viewConnectionOptions
 
         InGame _ ->
             viewIntro model
@@ -123,4 +153,5 @@ view model =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.none
+    Sub.batch
+        [ Ports.connectionDescription (SetPeerId << D.decodeValue D.string) ]
