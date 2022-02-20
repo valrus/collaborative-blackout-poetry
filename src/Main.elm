@@ -2,6 +2,7 @@ module Main exposing (..)
 
 import Browser
 import Element exposing (..)
+import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
@@ -68,6 +69,10 @@ type alias PlayerList =
     List UserName
 
 
+
+-- TODO divide these by host/guest?
+
+
 type GamePhase
     = NotStarted
     | ShowingHostOptions
@@ -85,6 +90,7 @@ type GameRole
 type alias Model =
     { gameId : GameId
     , gameRole : GameRole
+    , userName : UserName
     , gamePhase : GamePhase
     , textString : String
     }
@@ -94,6 +100,7 @@ init : String -> ( Model, Cmd Msg )
 init gameId =
     ( { gameId = gameId
       , gameRole = Guest ""
+      , userName = ""
       , gamePhase = NotStarted
       , textString = ""
       }
@@ -108,8 +115,10 @@ init gameId =
 type Msg
     = InitHostGame
     | InitGuestGame
-    | SetText String
+    | ResetToIntro
+    | SetGameText String
     | SetHostIdForGuest GameId
+    | SetUserName UserName
     | GuestConnected UserName
     | ConnectedToHost GameId
     | ShowHostOptions
@@ -149,7 +158,18 @@ update msg model =
                     , Ports.connectToHost hostId
                     )
 
-        SetText s ->
+        ResetToIntro ->
+            ( { model | gamePhase = NotStarted, gameRole = Guest "" }
+            , Cmd.none
+            )
+
+        SetUserName name ->
+            ( { model | userName = name }
+              -- TODO send to other players
+            , Cmd.none
+            )
+
+        SetGameText s ->
             ( { model | textString = s }, Cmd.none )
 
         SetHostIdForGuest hostId ->
@@ -170,25 +190,89 @@ update msg model =
             ( { model | gamePhase = ShowingHostOptions }, Cmd.none )
 
         StartGame ->
-            ( { model | gamePhase = InGame (makeText model.textString) (Actions actionsPerTurn) }, Cmd.none )
+            ( { model
+                | gamePhase = InGame (makeText model.textString) (Actions actionsPerTurn)
+              }
+            , Cmd.none
+            )
 
 
 
 -- VIEW
 
 
+basePadding =
+    { top = 0
+    , right = 0
+    , bottom = 0
+    , left = 0
+    }
+
+
+buttonStyles : List (Element.Attribute Msg)
+buttonStyles =
+    [ padding 10
+    , Border.solid
+    , Border.width 1
+    , Border.rounded 5
+    , Border.color (rgb 0 0 0)
+    ]
+
+
+gameIdStyles : List (Element.Attribute Msg)
+gameIdStyles =
+    [ centerX, Font.size 36, Font.family [ Font.monospace ] ]
+
+
+userNameInput : String -> Element Msg
+userNameInput userName =
+    Input.text
+        [ centerX ]
+        { label =
+            Input.labelBelow
+                [ centerX ]
+                (text "User name")
+        , onChange = SetUserName
+        , placeholder = Just (Input.placeholder [] (text "Enter name here"))
+        , text = userName
+        }
+
+
+resetToIntroButton : Element.Attribute Msg
+resetToIntroButton =
+    onLeft (Input.button buttonStyles { onPress = Just ResetToIntro, label = text "Back" })
+
+
+defaultFontStyles : List (Element.Attribute Msg)
+defaultFontStyles =
+    [ Font.size 20
+    , Font.family
+        [ Font.sansSerif ]
+    , Font.color (rgb 0 0 0)
+    ]
+
+
+mainColumnStyles : List (Element.Attribute Msg)
+mainColumnStyles =
+    [ centerX
+    , alignTop
+    , spacing 20
+    , width (px 600)
+    ]
+
+
 viewIntro : GameRole -> Html Msg
 viewIntro gameRole =
     layout [ padding 20 ] <|
         column
-            [ centerX, alignTop, spacing 20 ]
-            [ Input.button [ centerX ] { onPress = Just ShowHostOptions, label = text "Host game" }
+            mainColumnStyles
+            [ Input.button (centerX :: buttonStyles) { onPress = Just ShowHostOptions, label = text "Host game" }
             , Input.text
-                [ centerX ]
+                gameIdStyles
                 { label =
                     Input.labelBelow
-                        [ centerX ]
-                        (Input.button [] { onPress = Just InitGuestGame, label = text "Connect to game" })
+                        (centerX :: defaultFontStyles)
+                        (Input.button buttonStyles { onPress = Just InitGuestGame, label = text "Connect to game" })
                 , onChange = SetHostIdForGuest
                 , placeholder = Just (Input.placeholder [] (text "Game ID"))
                 , text =
@@ -202,51 +286,58 @@ viewIntro gameRole =
             ]
 
 
-basePadding =
-    { top = 0
-    , right = 0
-    , bottom = 0
-    , left = 0
-    }
-
-
 viewHostOptions : String -> GameId -> Html Msg
 viewHostOptions textString hostId =
     layout [ padding 20 ] <|
         column
-            [ centerX, alignTop, spacing 20 ]
-        <|
-            [ el [ centerX ] (text "Game ID")
-            , el [ centerX, Font.size 36, Font.family [ Font.monospace ] ] (text hostId)
-            , Input.multiline
-                [ centerX, width (px 600), paddingXY 0 20 ]
-                { onChange = SetText
-                , placeholder = Just (Input.placeholder [] (text "Poem starter text"))
-                , text = textString
-                , spellcheck = False
-                , label =
-                    Input.labelAbove
-                        [ centerX ]
-                        (text "Poem starter text")
-                }
-            , Input.button [ centerX ] { onPress = Just StartGame, label = text "Start game" }
+            (mainColumnStyles ++ [ resetToIntroButton, spacing 60 ])
+            [ column [ spacing 20, centerX ]
+                [ el [ centerX ] (text "Game ID")
+                , el gameIdStyles (text hostId)
+                ]
+            , column [ spacing 20 ]
+                [ Input.multiline
+                    [ centerX, width (px 600) ]
+                    { onChange = SetGameText
+                    , placeholder = Nothing
+                    , text = textString
+                    , spellcheck = False
+                    , label =
+                        Input.labelAbove
+                            [ centerX ]
+                            (text "Poem starter text")
+                    }
+                , Input.button (centerX :: buttonStyles) { onPress = Just StartGame, label = text "Start game" }
+                ]
             ]
 
 
-viewConnectionOptions : Html Msg
-viewConnectionOptions =
+viewGuestLobby : GamePhase -> UserName -> Html Msg
+viewGuestLobby gamePhase userName =
     layout [ padding 20 ] <|
         column
-            [ centerX, alignTop ]
-            [ text "Connection options" ]
+            (resetToIntroButton :: mainColumnStyles)
+            [ userNameInput userName
+            , el [ centerX ] <|
+                case gamePhase of
+                    ConnectedAsGuest ->
+                        text "Waiting for host to begin..."
+
+                    _ ->
+                        text "Connecting..."
+            ]
 
 
-viewGuestGameLobby : Html Msg
-viewGuestGameLobby =
+poemLine : TextLine -> List (Element Msg)
+poemLine line =
+    List.intersperse (el [] (text " ")) <| List.map (\token -> el [] (text token.content)) line
+
+
+viewGame : Text -> Html Msg
+viewGame poem =
     layout [ padding 20 ] <|
-        column
-            [ centerX, alignTop ]
-            [ text "Waiting for host to begin..." ]
+        Element.textColumn (resetToIntroButton :: mainColumnStyles ++ [ spacing 10, padding 10 ])
+            (List.map (\line -> paragraph [] (poemLine line)) poem)
 
 
 view : Model -> Html Msg
@@ -259,13 +350,13 @@ view model =
             viewHostOptions model.textString model.gameId
 
         ShowingConnectionOptions ->
-            viewConnectionOptions
+            viewGuestLobby model.gamePhase model.userName
 
         ConnectedAsGuest ->
-            viewGuestGameLobby
+            viewGuestLobby model.gamePhase model.userName
 
-        InGame _ _ ->
-            viewIntro model.gameRole
+        InGame text _ ->
+            viewGame text
 
         GameOver ->
             viewIntro model.gameRole
