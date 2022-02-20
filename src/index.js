@@ -8,7 +8,7 @@ function generateGameId(length) {
 }
 var gameId = generateGameId(20);
 
-app = Elm.Main.init({ node: document.getElementById('root'), flags: gameId });
+var app = Elm.Main.init({ node: document.getElementById('root'), flags: gameId });
 app.peer = new Peer(gameId);
 // when connecting as a guest
 app.hostConnection = null;
