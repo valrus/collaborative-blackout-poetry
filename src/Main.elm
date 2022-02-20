@@ -3,6 +3,7 @@ module Main exposing (..)
 import Browser
 import Element exposing (..)
 import Element.Events as Events
+import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html, div)
 import Json.Decode as D
@@ -41,6 +42,11 @@ type alias Text =
     List TextLine
 
 
+actionsPerTurn : Int
+actionsPerTurn =
+    3
+
+
 type TurnState
     = TurnOver
     | Actions Int
@@ -54,16 +60,25 @@ type alias ConnectionId =
     String
 
 
+type alias UserName =
+    String
+
+
+type alias PlayerList =
+    List UserName
+
+
 type GamePhase
     = NotStarted
     | ShowingHostOptions
     | ShowingConnectionOptions
-    | InGame TurnState
+    | ConnectedAsGuest
+    | InGame Text TurnState
     | GameOver
 
 
 type GameRole
-    = Host
+    = Host PlayerList
     | Guest GameId
 
 
@@ -71,13 +86,17 @@ type alias Model =
     { gameId : GameId
     , gameRole : GameRole
     , gamePhase : GamePhase
-    , text : Text
+    , textString : String
     }
 
 
 init : String -> ( Model, Cmd Msg )
 init gameId =
-    ( { gameId = gameId, gameRole = Host, gamePhase = NotStarted, text = [] }
+    ( { gameId = gameId
+      , gameRole = Guest ""
+      , gamePhase = NotStarted
+      , textString = ""
+      }
     , Cmd.none
     )
 
@@ -89,23 +108,39 @@ init gameId =
 type Msg
     = InitHostGame
     | InitGuestGame
+    | SetText String
     | SetHostIdForGuest GameId
-    | ConnectedAsGuest GameId
+    | GuestConnected UserName
+    | ConnectedToHost GameId
     | ShowHostOptions
     | StartGame
+
+
+makeToken : String -> Token
+makeToken s =
+    { content = s
+    , state = Default
+    }
+
+
+makeText : String -> Text
+makeText s =
+    String.split "\n" s
+        |> List.map (\line -> String.split " " line)
+        |> List.map (List.map makeToken)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         InitHostGame ->
-            ( { model | gameRole = Host, gamePhase = ShowingHostOptions }
-            , Cmd.none
+            ( { model | gameRole = Host [], gamePhase = ShowingHostOptions }
+            , Ports.startHosting ()
             )
 
         InitGuestGame ->
             case model.gameRole of
-                Host ->
+                Host _ ->
                     -- TODO add error
                     ( model, Cmd.none )
 
@@ -114,25 +149,36 @@ update msg model =
                     , Ports.connectToHost hostId
                     )
 
+        SetText s ->
+            ( { model | textString = s }, Cmd.none )
+
         SetHostIdForGuest hostId ->
             ( { model | gameRole = Guest hostId }, Cmd.none )
 
-        ConnectedAsGuest hostId ->
-            ( model, Cmd.none )
+        GuestConnected userName ->
+            case model.gameRole of
+                Host userNames ->
+                    ( { model | gameRole = Host (userName :: userNames) }, Cmd.none )
+
+                Guest _ ->
+                    ( model, Cmd.none )
+
+        ConnectedToHost hostId ->
+            ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }, Cmd.none )
 
         ShowHostOptions ->
             ( { model | gamePhase = ShowingHostOptions }, Cmd.none )
 
         StartGame ->
-            ( model, Cmd.none )
+            ( { model | gamePhase = InGame (makeText model.textString) (Actions actionsPerTurn) }, Cmd.none )
 
 
 
 -- VIEW
 
 
-viewIntro : Model -> Html Msg
-viewIntro model =
+viewIntro : GameRole -> Html Msg
+viewIntro gameRole =
     layout [ padding 20 ] <|
         column
             [ centerX, alignTop, spacing 20 ]
@@ -145,17 +191,46 @@ viewIntro model =
                         (Input.button [] { onPress = Just InitGuestGame, label = text "Connect to game" })
                 , onChange = SetHostIdForGuest
                 , placeholder = Just (Input.placeholder [] (text "Game ID"))
-                , text = ""
+                , text =
+                    case gameRole of
+                        Guest gameId ->
+                            gameId
+
+                        Host _ ->
+                            "N/A"
                 }
             ]
 
 
-viewHostOptions : String -> Html Msg
-viewHostOptions hostId =
+basePadding =
+    { top = 0
+    , right = 0
+    , bottom = 0
+    , left = 0
+    }
+
+
+viewHostOptions : String -> GameId -> Html Msg
+viewHostOptions textString hostId =
     layout [ padding 20 ] <|
         column
-            [ centerX, alignTop ]
-            [ text hostId ]
+            [ centerX, alignTop, spacing 20 ]
+        <|
+            [ el [ centerX ] (text "Game ID")
+            , el [ centerX, Font.size 36, Font.family [ Font.monospace ] ] (text hostId)
+            , Input.multiline
+                [ centerX, width (px 600), paddingXY 0 20 ]
+                { onChange = SetText
+                , placeholder = Just (Input.placeholder [] (text "Poem starter text"))
+                , text = textString
+                , spellcheck = False
+                , label =
+                    Input.labelAbove
+                        [ centerX ]
+                        (text "Poem starter text")
+                }
+            , Input.button [ centerX ] { onPress = Just StartGame, label = text "Start game" }
+            ]
 
 
 viewConnectionOptions : Html Msg
@@ -166,23 +241,34 @@ viewConnectionOptions =
             [ text "Connection options" ]
 
 
+viewGuestGameLobby : Html Msg
+viewGuestGameLobby =
+    layout [ padding 20 ] <|
+        column
+            [ centerX, alignTop ]
+            [ text "Waiting for host to begin..." ]
+
+
 view : Model -> Html Msg
 view model =
     case model.gamePhase of
         NotStarted ->
-            viewIntro model
+            viewIntro model.gameRole
 
         ShowingHostOptions ->
-            viewHostOptions model.gameId
+            viewHostOptions model.textString model.gameId
 
         ShowingConnectionOptions ->
             viewConnectionOptions
 
-        InGame _ ->
-            viewIntro model
+        ConnectedAsGuest ->
+            viewGuestGameLobby
+
+        InGame _ _ ->
+            viewIntro model.gameRole
 
         GameOver ->
-            viewIntro model
+            viewIntro model.gameRole
 
 
 
@@ -191,4 +277,7 @@ view model =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.none
+    Sub.batch
+        [ Ports.guestConnected GuestConnected
+        , Ports.connectedAsGuest ConnectedToHost
+        ]
