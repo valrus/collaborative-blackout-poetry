@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "start": "parcel public/index.html",
-    "build": "parcel build public/index.html --dist-dir docs"
+    "build-gh": "parcel build public/index.html --dist-dir docs --public-url /collaborative-blackout-poetry/"
   },
   "keywords": [],
   "author": "",
