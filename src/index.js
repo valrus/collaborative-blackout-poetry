@@ -38,7 +38,7 @@ app.ports.connectToHost.subscribe((hostId) => {
             app.hostConnection.send(data);
         });
 
-        app.ports.connectedAsGuest.send(app.hostConnection.id);
+        app.ports.connectedAsGuest.send(app.hostConnection.peer);
     });
 })
 
