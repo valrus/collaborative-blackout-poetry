@@ -76,6 +76,12 @@ type alias PlayerList =
     List User
 
 
+type alias GameState =
+    { poem : Text
+    , turn : TurnState
+    }
+
+
 
 -- TODO divide these by host/guest?
 
@@ -85,7 +91,7 @@ type GamePhase
     | ShowingHostOptions
     | ShowingConnectionOptions
     | ConnectedAsGuest
-    | InGame Text TurnState
+    | InGame GameState
     | GameOver
 
 
@@ -204,7 +210,7 @@ update msg model =
 
         StartGame ->
             ( { model
-                | gamePhase = InGame (makeText model.textString) (Actions actionsPerTurn)
+                | gamePhase = InGame { poem = makeText model.textString, turn = Actions actionsPerTurn }
               }
             , Cmd.none
             )
@@ -236,6 +242,20 @@ buttonStyles isEnabled =
             else
                 [ Font.color (rgb 0.5 0.5 0.5) ]
            )
+
+
+conditionalButton : { isEnabled : Bool, msg : Msg, labelText : String } -> Element Msg
+conditionalButton opts =
+    Input.button
+        (centerX :: buttonStyles opts.isEnabled)
+        { onPress =
+            if opts.isEnabled then
+                Just opts.msg
+
+            else
+                Nothing
+        , label = text opts.labelText
+        }
 
 
 gameIdStyles : List (Element.Attribute Msg)
@@ -323,20 +343,18 @@ viewIntro gameRole =
     layout [ padding 20 ] <|
         column
             mainColumnStyles
-            [ Input.button (centerX :: buttonStyles True) { onPress = Just ShowHostOptions, label = text "Host game" }
+            [ Input.button
+                (centerX :: buttonStyles True)
+                { onPress = Just ShowHostOptions, label = text "Host game" }
             , Input.text
                 gameIdStyles
                 { label =
                     Input.labelBelow
                         (centerX :: defaultFontStyles)
-                        (Input.button (buttonStyles validId)
-                            { onPress =
-                                if validId then
-                                    Just InitGuestGame
-
-                                else
-                                    Nothing
-                            , label = text "Connect to game"
+                        (conditionalButton
+                            { msg = InitGuestGame
+                            , isEnabled = validId
+                            , labelText = "Connect to game"
                             }
                         )
                 , onChange = SetHostIdForGuest
@@ -346,8 +364,22 @@ viewIntro gameRole =
             ]
 
 
+minTextWords : Int
+minTextWords =
+    100
+
+
+isValidPoemString : String -> Bool
+isValidPoemString s =
+    (String.words s |> List.length) > minTextWords
+
+
 viewHostOptions : String -> GameId -> PlayerList -> Html Msg
 viewHostOptions textString hostId playerList =
+    let
+        validPoemText =
+            isValidPoemString textString
+    in
     layout [ padding 20 ] <|
         column
             (mainColumnStyles ++ [ resetToIntroButton, showPlayerList playerList, spacing 60 ])
@@ -367,7 +399,11 @@ viewHostOptions textString hostId playerList =
                             [ centerX ]
                             (text "Poem starter text")
                     }
-                , Input.button (centerX :: buttonStyles True) { onPress = Just StartGame, label = text "Start game" }
+                , conditionalButton
+                    { isEnabled = isValidPoemString textString
+                    , msg = StartGame
+                    , labelText = "Start game"
+                    }
                 ]
             ]
 
@@ -415,8 +451,8 @@ view model =
         ConnectedAsGuest ->
             viewGuestLobby model.gamePhase model.userName
 
-        InGame text _ ->
-            viewGame text
+        InGame gameState ->
+            viewGame gameState.poem
 
         GameOver ->
             viewIntro model.gameRole
