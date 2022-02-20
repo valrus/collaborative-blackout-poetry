@@ -2,7 +2,7 @@ import { Elm } from './Main.elm';
 import Peer from 'peerjs';
 
 function generateGameId(length) {
-    var seedArray = new Uint32Array(20);
+    var seedArray = new Uint32Array(length);
     crypto.getRandomValues(seedArray);
     return String.fromCharCode(...seedArray.map(n => 97 + (n % 26)));
 }
@@ -38,14 +38,16 @@ app.ports.connectToHost.subscribe((hostId) => {
             app.hostConnection.send(data);
         });
 
-        app.ports.connectedAsGuest.send(hostConnection.id);
+        app.ports.connectedAsGuest.send(app.hostConnection.id);
     });
 })
 
 // connecting as the host
-app.ports.startHosting.subscribe((args) => {
-    // reset connection if we were previously connected to another game
+// TODO: what's args?
+app.ports.startHosting.subscribe((_args) => {
+    // reset connections if we were previously connected to another game
     app.hostConnection = null;
+    app.guestConnections = {};
 
     app.peer.on('connection', (connection) => {
         setupMessageReceipt(connection);
@@ -55,7 +57,7 @@ app.ports.startHosting.subscribe((args) => {
     });
 
     app.ports.sendAsHost.subscribe((data) => {
-        Object.entries(app.guestConnections).forEach(([peerId, connection]) => {
+        Object.entries(app.guestConnections).forEach(([_peerId, connection]) => {
             connection.send(data);
         });
     })
