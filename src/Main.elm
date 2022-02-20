@@ -8,6 +8,7 @@ import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html, div)
 import Json.Decode as D
+import Json.Encode as E
 import Ports
 
 
@@ -194,7 +195,9 @@ update msg model =
                     ( model, Cmd.none )
 
         ConnectedToHost hostId ->
-            ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }, Cmd.none )
+            ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }
+            , Ports.sendAsGuest E.null
+            )
 
         ShowHostOptions ->
             ( { model | gamePhase = ShowingHostOptions }, Cmd.none )

@@ -34,9 +34,9 @@ app.ports.connectToHost.subscribe((hostId) => {
     app.hostConnection.on('open', function() {
         setupMessageReceipt(app.hostConnection);
         app.ports.sendAsGuest.subscribe((data) => {
+            console.log(data);
             app.hostConnection.send(data);
         });
-        setupMessageSending(app.hostConnection);
 
         app.ports.connectedAsGuest.send(hostConnection.id);
     });
