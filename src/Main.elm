@@ -65,8 +65,14 @@ type alias UserName =
     String
 
 
+type alias User =
+    { name : UserName
+    , isHost : Bool
+    }
+
+
 type alias PlayerList =
-    List UserName
+    List User
 
 
 
@@ -83,7 +89,7 @@ type GamePhase
 
 
 type GameRole
-    = Host PlayerList
+    = Host
     | Guest GameId
 
 
@@ -91,6 +97,7 @@ type alias Model =
     { gameId : GameId
     , gameRole : GameRole
     , userName : UserName
+    , playerList : PlayerList
     , gamePhase : GamePhase
     , textString : String
     }
@@ -101,6 +108,7 @@ init gameId =
     ( { gameId = gameId
       , gameRole = Guest ""
       , userName = ""
+      , playerList = []
       , gamePhase = NotStarted
       , textString = ""
       }
@@ -143,13 +151,13 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         InitHostGame ->
-            ( { model | gameRole = Host [], gamePhase = ShowingHostOptions }
+            ( { model | gameRole = Host, gamePhase = ShowingHostOptions }
             , Ports.startHosting ()
             )
 
         InitGuestGame ->
             case model.gameRole of
-                Host _ ->
+                Host ->
                     -- TODO add error
                     ( model, Cmd.none )
 
@@ -177,10 +185,12 @@ update msg model =
 
         GuestConnected userName ->
             case model.gameRole of
-                Host userNames ->
-                    ( { model | gameRole = Host (userName :: userNames) }, Cmd.none )
+                Host ->
+                    -- TODO send to other players
+                    ( { model | gameRole = Host, playerList = { name = userName, isHost = False } :: model.playerList }, Cmd.none )
 
                 Guest _ ->
+                    -- TODO error?
                     ( model, Cmd.none )
 
         ConnectedToHost hostId ->
@@ -209,14 +219,20 @@ basePadding =
     }
 
 
-buttonStyles : List (Element.Attribute Msg)
-buttonStyles =
+buttonStyles : Bool -> List (Element.Attribute Msg)
+buttonStyles isEnabled =
     [ padding 10
     , Border.solid
     , Border.width 1
     , Border.rounded 5
     , Border.color (rgb 0 0 0)
     ]
+        ++ (if isEnabled then
+                []
+
+            else
+                [ Font.color (rgb 0.5 0.5 0.5) ]
+           )
 
 
 gameIdStyles : List (Element.Attribute Msg)
@@ -227,20 +243,40 @@ gameIdStyles =
 userNameInput : String -> Element Msg
 userNameInput userName =
     Input.text
-        [ centerX ]
+        [ centerX, width (300 |> px) ]
         { label =
-            Input.labelBelow
+            Input.labelAbove
                 [ centerX ]
                 (text "User name")
         , onChange = SetUserName
-        , placeholder = Just (Input.placeholder [] (text "Enter name here"))
+        , placeholder = Nothing
         , text = userName
         }
 
 
 resetToIntroButton : Element.Attribute Msg
 resetToIntroButton =
-    onLeft (Input.button buttonStyles { onPress = Just ResetToIntro, label = text "Back" })
+    onLeft (Input.button (buttonStyles True) { onPress = Just ResetToIntro, label = text "Back" })
+
+
+showPlayerList : PlayerList -> Element.Attribute Msg
+showPlayerList playerList =
+    onRight
+        (column [ spacing 5 ]
+            (List.map
+                (\player ->
+                    el
+                        (if player.isHost then
+                            [ Font.bold ]
+
+                         else
+                            []
+                        )
+                        (text player.name)
+                )
+                playerList
+            )
+        )
 
 
 defaultFontStyles : List (Element.Attribute Msg)
@@ -261,36 +297,57 @@ mainColumnStyles =
     ]
 
 
+isValidGameId : GameId -> Bool
+isValidGameId gameId =
+    List.all Char.isLower (String.toList gameId) && (String.length gameId == 20)
+
+
 viewIntro : GameRole -> Html Msg
 viewIntro gameRole =
+    let
+        gameId =
+            case gameRole of
+                Guest id ->
+                    id
+
+                Host ->
+                    -- Shouldn't ever happen
+                    "N/A"
+
+        validId =
+            isValidGameId gameId
+    in
     layout [ padding 20 ] <|
         column
             mainColumnStyles
-            [ Input.button (centerX :: buttonStyles) { onPress = Just ShowHostOptions, label = text "Host game" }
+            [ Input.button (centerX :: buttonStyles True) { onPress = Just ShowHostOptions, label = text "Host game" }
             , Input.text
                 gameIdStyles
                 { label =
                     Input.labelBelow
                         (centerX :: defaultFontStyles)
-                        (Input.button buttonStyles { onPress = Just InitGuestGame, label = text "Connect to game" })
+                        (Input.button (buttonStyles validId)
+                            { onPress =
+                                if validId then
+                                    Just InitGuestGame
+
+                                else
+                                    Nothing
+                            , label = text "Connect to game"
+                            }
+                        )
                 , onChange = SetHostIdForGuest
                 , placeholder = Just (Input.placeholder [] (text "Game ID"))
-                , text =
-                    case gameRole of
-                        Guest gameId ->
-                            gameId
-
-                        Host _ ->
-                            "N/A"
+                , text = gameId
                 }
             ]
 
 
-viewHostOptions : String -> GameId -> Html Msg
-viewHostOptions textString hostId =
+viewHostOptions : String -> GameId -> PlayerList -> Html Msg
+viewHostOptions textString hostId playerList =
     layout [ padding 20 ] <|
         column
-            (mainColumnStyles ++ [ resetToIntroButton, spacing 60 ])
+            (mainColumnStyles ++ [ resetToIntroButton, showPlayerList playerList, spacing 60 ])
             [ column [ spacing 20, centerX ]
                 [ el [ centerX ] (text "Game ID")
                 , el gameIdStyles (text hostId)
@@ -307,7 +364,7 @@ viewHostOptions textString hostId =
                             [ centerX ]
                             (text "Poem starter text")
                     }
-                , Input.button (centerX :: buttonStyles) { onPress = Just StartGame, label = text "Start game" }
+                , Input.button (centerX :: buttonStyles True) { onPress = Just StartGame, label = text "Start game" }
                 ]
             ]
 
@@ -316,7 +373,7 @@ viewGuestLobby : GamePhase -> UserName -> Html Msg
 viewGuestLobby gamePhase userName =
     layout [ padding 20 ] <|
         column
-            (resetToIntroButton :: mainColumnStyles)
+            (resetToIntroButton :: mainColumnStyles ++ [ spacing 40 ])
             [ userNameInput userName
             , el [ centerX ] <|
                 case gamePhase of
@@ -347,7 +404,7 @@ view model =
             viewIntro model.gameRole
 
         ShowingHostOptions ->
-            viewHostOptions model.textString model.gameId
+            viewHostOptions model.textString model.gameId model.playerList
 
         ShowingConnectionOptions ->
             viewGuestLobby model.gamePhase model.userName
