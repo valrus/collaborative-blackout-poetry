@@ -42,7 +42,6 @@ app.ports.connectToHost.subscribe((hostId) => {
 })
 
 // connecting as the host
-// TODO: what's args?
 app.ports.startHosting.subscribe(() => {
     console.log('init hosting');
     // reset connections if we were previously connected to another game
@@ -62,5 +61,8 @@ app.ports.startHosting.subscribe(() => {
         });
     })
 
-    app.peer.on("error", (err) => console.log(err));
+    // TODO: send error back to elm
+    app.peer.on("error", (err) => {console.log(err)});
+
+    // TODO: send successful host setup back to elm
 });
