@@ -129,15 +129,23 @@ init gameId =
 -- UPDATE
 
 
-type Msg
-    = InitGuestGame
-    | ResetToIntro
+type HostMsg
+    = ShowHostOptions
     | SetGameText String
+    | StartGame
+
+
+type GuestMsg
+    = InitGuestGame
+    | ConnectedToHost GameId
+
+
+type Msg
+    = HostMsg HostMsg
+    | GuestMsg GuestMsg
+    | ResetToIntro
     | SetHostIdForGuest GameId
     | SetUserName PlayerName
-    | ConnectedToHost GameId
-    | ShowHostOptions
-    | StartGame
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
 
@@ -249,43 +257,9 @@ updateTokenState tokenPosition tokenState poem =
                     Array.set lineIndex (Array.set tokenIndex { token | state = tokenState } line) poem
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
-    case msg of
-        InitGuestGame ->
-            case model.gameRole of
-                Host ->
-                    -- TODO add error
-                    ( model, Cmd.none )
-
-                Guest hostId ->
-                    ( { model | gamePhase = ConnectingAsGuest }
-                    , Ports.connectToHost hostId
-                    )
-
-        ResetToIntro ->
-            ( { model | gamePhase = NotStarted, gameRole = Guest "" }
-              -- TODO: disconnect from host / end game?
-            , Cmd.none
-            )
-
-        SetUserName name ->
-            ( { model | userName = name }
-              -- TODO send to other players
-            , Cmd.none
-            )
-
-        SetGameText s ->
-            ( { model | textString = s }, Cmd.none )
-
-        SetHostIdForGuest hostId ->
-            ( { model | gameRole = Guest hostId }, Cmd.none )
-
-        ConnectedToHost hostId ->
-            ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }
-            , Ports.sendAsGuest <| encodeGameMsg (GuestJoined model.userName)
-            )
-
+handleHostMsg : HostMsg -> Model -> ( Model, Cmd Msg )
+handleHostMsg hostMsg model =
+    case hostMsg of
         ShowHostOptions ->
             ( { model
                 | gamePhase = ShowingHostOptions
@@ -294,6 +268,9 @@ update msg model =
               }
             , Ports.startHosting ()
             )
+
+        SetGameText s ->
+            ( { model | textString = s }, Cmd.none )
 
         StartGame ->
             let
@@ -306,7 +283,57 @@ update msg model =
             , Ports.sendAsHost (encodeGameMsg <| GameAction poem model.playerList)
             )
 
+
+handleGuestMsg : GuestMsg -> Model -> ( Model, Cmd Msg )
+handleGuestMsg guestMsg model =
+    case guestMsg of
+        InitGuestGame ->
+            case model.gameRole of
+                Host ->
+                    -- TODO add error
+                    ( model, Cmd.none )
+
+                Guest hostId ->
+                    ( { model | gamePhase = ConnectingAsGuest }
+                    , Ports.connectToHost hostId
+                    )
+
+        ConnectedToHost hostId ->
+            ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }
+            , Ports.sendAsGuest <| encodeGameMsg (GuestJoined model.userName)
+            )
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        -- intro screen changes
+        SetUserName name ->
+            ( { model | userName = name }
+              -- TODO send to other players
+            , Cmd.none
+            )
+
+        SetHostIdForGuest hostId ->
+            ( { model | gameRole = Guest hostId }, Cmd.none )
+
+        -- host/guest specific setup changes
+        HostMsg hostMsg ->
+            handleHostMsg hostMsg model
+
+        GuestMsg guestMsg ->
+            handleGuestMsg guestMsg model
+
+        -- general navigation changes
+        ResetToIntro ->
+            ( { model | gamePhase = NotStarted, gameRole = Guest "" }
+              -- TODO: disconnect from host / end game?
+            , Cmd.none
+            )
+
+        -- game state changes
         ReceivedGameMessage (Err err) ->
+            -- TODO: handle somehow
             ( model, Cmd.none )
 
         ReceivedGameMessage (Ok gameMsg) ->
@@ -480,7 +507,7 @@ viewIntro playerName gameRole =
             mainColumnStyles
             [ userNameInput playerName
             , conditionalButton
-                { msg = ShowHostOptions
+                { msg = HostMsg ShowHostOptions
                 , isEnabled = not (String.isEmpty playerName)
                 , labelText = "Host game"
                 }
@@ -490,13 +517,13 @@ viewIntro playerName gameRole =
                     Input.labelBelow
                         (centerX :: defaultFontStyles)
                         (conditionalButton
-                            { msg = InitGuestGame
+                            { msg = GuestMsg InitGuestGame
                             , isEnabled = validId && not (String.isEmpty playerName)
                             , labelText = "Connect to game"
                             }
                         )
                 , onChange = SetHostIdForGuest
-                , placeholder = Just (Input.placeholder [] (text "Enter Game ID to connect to"))
+                , placeholder = Just (Input.placeholder [] (text "Game ID from host"))
                 , text = gameId
                 }
             ]
@@ -536,7 +563,7 @@ viewHostOptions textString hostId playerList =
             , column [ spacing 20 ]
                 [ Input.multiline
                     [ centerX, width (px 600) ]
-                    { onChange = SetGameText
+                    { onChange = SetGameText >> HostMsg
                     , placeholder = Nothing
                     , text = textString
                     , spellcheck = False
@@ -547,7 +574,7 @@ viewHostOptions textString hostId playerList =
                     }
                 , conditionalButton
                     { isEnabled = isValidPoemString textString
-                    , msg = StartGame
+                    , msg = HostMsg StartGame
                     , labelText = "Start game"
                     }
                 ]
@@ -699,6 +726,6 @@ gameMessageDecoder =
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.batch
-        [ Ports.connectedAsGuest ConnectedToHost
+        [ Ports.connectedAsGuest (ConnectedToHost >> GuestMsg)
         , Ports.receivedMessage (ReceivedGameMessage << D.decodeValue gameMessageDecoder)
         ]
