@@ -130,7 +130,6 @@ type Msg
     | SetGameText String
     | SetHostIdForGuest GameId
     | SetUserName PlayerName
-    | GuestConnected PlayerName
     | ConnectedToHost GameId
     | ShowHostOptions
     | StartGame
@@ -159,14 +158,14 @@ handleGameMessage model gameMsg =
                 Host ->
                     let
                         newPlayerList =
-                            { name = playerName, isHost = False, actions = actionsPerTurn }
+                            { name = Debug.log "New guest" playerName, isHost = False, actions = actionsPerTurn }
                                 :: model.playerList
                     in
                     ( { model | playerList = newPlayerList }, Cmd.none )
 
                 Guest _ ->
                     -- Shouldn't happen
-                    ( model, Cmd.none )
+                    ( Debug.log "im guest?" model, Cmd.none )
 
         UpdatePlayerList playerList ->
             ( model, Cmd.none )
@@ -215,25 +214,6 @@ update msg model =
         SetHostIdForGuest hostId ->
             ( { model | gameRole = Guest hostId }, Cmd.none )
 
-        GuestConnected guestName ->
-            case model.gameRole of
-                Host ->
-                    let
-                        newPlayerList =
-                            { name = Debug.log "new guest" guestName
-                            , isHost = False
-                            , actions = actionsPerTurn
-                            }
-                                :: model.playerList
-                    in
-                    ( { model | playerList = newPlayerList }
-                    , Ports.sendAsHost (E.list encodePlayer newPlayerList)
-                    )
-
-                Guest _ ->
-                    -- TODO error?
-                    ( model, Cmd.none )
-
         ConnectedToHost hostId ->
             ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }
             , Ports.sendAsGuest (E.object [ ( "guestName", E.string model.userName ) ])
@@ -242,6 +222,7 @@ update msg model =
         ShowHostOptions ->
             ( { model
                 | gamePhase = ShowingHostOptions
+                , gameRole = Host
                 , playerList = [ { name = model.userName, isHost = True, actions = actionsPerTurn } ]
               }
             , Ports.startHosting ()
@@ -582,7 +563,6 @@ gameMessageDecoder =
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.batch
-        [ Ports.guestConnected GuestConnected
-        , Ports.connectedAsGuest ConnectedToHost
+        [ Ports.connectedAsGuest ConnectedToHost
         , Ports.receivedMessage (ReceivedGameMessage << D.decodeValue gameMessageDecoder)
         ]

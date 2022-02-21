@@ -54,8 +54,6 @@ app.ports.startHosting.subscribe(() => {
         console.log('new peer: ' + connection.label);
         setupMessageReceipt(connection);
         app.guestConnections[connection.peer] = connection;
-
-        app.ports.guestConnected.send(connection.label);
     });
 
     app.ports.sendAsHost.subscribe((data) => {
