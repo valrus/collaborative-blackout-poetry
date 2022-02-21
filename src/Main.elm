@@ -134,6 +134,7 @@ type Msg
     | ShowHostOptions
     | StartGame
     | ReceivedGameMessage (Result D.Error GameMessage)
+    | SetTokenState
 
 
 makeToken : String -> Token
@@ -150,7 +151,7 @@ makeText s =
         |> List.map (List.map makeToken)
 
 
-handleGameMessage : Model -> GameMessage -> ( Model, Cmd Msg )
+handleGameMessage : Model -> GameMessage -> Model
 handleGameMessage model gameMsg =
     case gameMsg of
         GuestJoined playerName ->
@@ -158,20 +159,20 @@ handleGameMessage model gameMsg =
                 Host ->
                     let
                         newPlayerList =
-                            { name = Debug.log "New guest" playerName, isHost = False, actions = actionsPerTurn }
+                            { name = playerName, isHost = False, actions = actionsPerTurn }
                                 :: model.playerList
                     in
-                    ( { model | playerList = newPlayerList }, Cmd.none )
+                    { model | playerList = newPlayerList }
 
                 Guest _ ->
                     -- Shouldn't happen
-                    ( Debug.log "im guest?" model, Cmd.none )
+                    Debug.log "im guest?" model
 
         UpdatePlayerList playerList ->
-            ( model, Cmd.none )
+            { model | playerList = playerList }
 
         GameAction poem playerList ->
-            ( model, Cmd.none )
+            { model | gamePhase = InGame poem, playerList = playerList }
 
 
 encodePlayer : Player -> E.Value
@@ -181,6 +182,47 @@ encodePlayer player =
         , ( "isHost", E.bool player.isHost )
         , ( "actions", E.int player.actions )
         ]
+
+
+encodeToken : Token -> E.Value
+encodeToken token =
+    E.object
+        [ ( "content", E.string token.content )
+        , ( "state"
+          , case token.state of
+                Default ->
+                    E.string "default"
+
+                Circled ->
+                    E.string "circled"
+
+                Obscured ->
+                    E.string "obscured"
+          )
+        ]
+
+
+encodePoem : Poem -> E.Value
+encodePoem poem =
+    E.list (\line -> E.list encodeToken line) poem
+
+
+encodeGameMsg : GameMessage -> E.Value
+encodeGameMsg gameMsg =
+    case gameMsg of
+        GuestJoined playerName ->
+            E.object [ ( "guestName", E.string playerName ) ]
+
+        UpdatePlayerList playerList ->
+            E.list encodePlayer playerList
+
+        GameAction poem playerList ->
+            E.object
+                [ ( "poem", encodePoem poem )
+                , ( "playerList"
+                  , E.list encodePlayer playerList
+                  )
+                ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -216,7 +258,7 @@ update msg model =
 
         ConnectedToHost hostId ->
             ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }
-            , Ports.sendAsGuest (E.object [ ( "guestName", E.string model.userName ) ])
+            , Ports.sendAsGuest <| encodeGameMsg (GuestJoined model.userName)
             )
 
         ShowHostOptions ->
@@ -229,17 +271,40 @@ update msg model =
             )
 
         StartGame ->
+            let
+                poem =
+                    makeText model.textString
+            in
             ( { model
-                | gamePhase = InGame (makeText model.textString)
+                | gamePhase = InGame poem
               }
-            , Cmd.none
+            , Ports.sendAsHost (encodeGameMsg <| GameAction poem model.playerList)
             )
 
         ReceivedGameMessage (Err err) ->
             ( model, Cmd.none )
 
         ReceivedGameMessage (Ok gameMsg) ->
-            handleGameMessage model gameMsg
+            let
+                newModel =
+                    handleGameMessage model gameMsg
+            in
+            ( newModel
+            , case ( newModel.gameRole, gameMsg ) of
+                ( Host, GuestJoined playerName ) ->
+                    -- forward the whole player list out
+                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList newModel.playerList)
+
+                ( Host, _ ) ->
+                    -- forward the received message
+                    Ports.sendAsHost (encodeGameMsg gameMsg)
+
+                ( Guest _, _ ) ->
+                    Cmd.none
+            )
+
+        SetTokenState ->
+            ( model, Cmd.none )
 
 
 
@@ -444,11 +509,18 @@ viewHostOptions textString hostId playerList =
             ]
 
 
-viewGuestLobby : GamePhase -> PlayerName -> Html Msg
-viewGuestLobby gamePhase userName =
+viewGuestLobby : GamePhase -> PlayerName -> PlayerList -> Html Msg
+viewGuestLobby gamePhase userName playerList =
     layout [ padding 20 ] <|
         column
-            (onLeft resetToIntroButton :: mainColumnStyles ++ [ spacing 40 ])
+            (onLeft
+                (column
+                    [ width (px 100), spacing 20 ]
+                    [ resetToIntroButton, viewPlayerList playerList ]
+                )
+                :: mainColumnStyles
+                ++ [ spacing 40 ]
+            )
             [ el [ centerX ] <|
                 case gamePhase of
                     ConnectedAsGuest ->
@@ -459,16 +531,30 @@ viewGuestLobby gamePhase userName =
             ]
 
 
-poemLine : TextLine -> List (Element Msg)
-poemLine line =
-    List.intersperse (el [] (text " ")) <| List.map (\token -> el [] (text token.content)) line
+viewToken : Token -> Element Msg
+viewToken token =
+    let
+        textColorAttribute =
+            case token.state of
+                Obscured ->
+                    [ Font.color (rgb 1.0 1.0 1.0) ]
+
+                _ ->
+                    []
+    in
+    el (Events.onClick SetTokenState :: textColorAttribute) (text token.content)
+
+
+viewPoemLine : TextLine -> List (Element Msg)
+viewPoemLine line =
+    List.intersperse (el [] (text " ")) <| List.map viewToken line
 
 
 viewGame : Poem -> Html Msg
 viewGame poem =
     layout [ padding 20 ] <|
         Element.textColumn (onLeft resetToIntroButton :: mainColumnStyles ++ [ spacing 10, padding 10 ])
-            (List.map (\line -> paragraph [] (poemLine line)) poem)
+            (List.map (\line -> paragraph [] (viewPoemLine line)) poem)
 
 
 view : Model -> Html Msg
@@ -481,10 +567,10 @@ view model =
             viewHostOptions model.textString model.gameId model.playerList
 
         ConnectingAsGuest ->
-            viewGuestLobby model.gamePhase model.userName
+            viewGuestLobby model.gamePhase model.userName model.playerList
 
         ConnectedAsGuest ->
-            viewGuestLobby model.gamePhase model.userName
+            viewGuestLobby model.gamePhase model.userName model.playerList
 
         InGame poem ->
             viewGame poem
