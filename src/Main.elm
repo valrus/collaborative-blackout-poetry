@@ -2,7 +2,6 @@ module Main exposing (..)
 
 import Array
 import Browser
-import Debug
 import Element exposing (..)
 import Element.Border as Border
 import Element.Events as Events
@@ -172,7 +171,7 @@ handleGameMessage model gameMsg =
 
                 Guest _ ->
                     -- Shouldn't happen
-                    Debug.log "im guest?" model
+                    model
 
         UpdatePlayerList playerList ->
             { model | playerList = playerList }
