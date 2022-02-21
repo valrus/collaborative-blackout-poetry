@@ -16,12 +16,10 @@ app.hostConnection = null;
 app.guestConnections = {};
 
 function setupMessageReceipt(connection) {
+    console.log('setting up msg receipt for ' + connection.peer);
     connection.on('data', (data) => {
         console.log('received data: ' + data);
-        app.ports.receivedMessage.send({
-            fromConnection: connection.peer,
-            data: data
-        });
+        app.ports.receivedMessage.send(data);
     });
 }
 
@@ -32,9 +30,10 @@ app.ports.connectToHost.subscribe((hostId) => {
 
     // on open will be called when you successfully connect to PeerServer
     app.hostConnection.on('open', function() {
+        console.log("connected to: " + app.hostConnection.peer);
         setupMessageReceipt(app.hostConnection);
         app.ports.sendAsGuest.subscribe((data) => {
-            console.log(data);
+            console.log("sendAsGuest, guestName: " + data.guestName);
             app.hostConnection.send(data);
         });
 
@@ -44,12 +43,15 @@ app.ports.connectToHost.subscribe((hostId) => {
 
 // connecting as the host
 // TODO: what's args?
-app.ports.startHosting.subscribe((_args) => {
+app.ports.startHosting.subscribe(() => {
+    console.log('init hosting');
     // reset connections if we were previously connected to another game
     app.hostConnection = null;
     app.guestConnections = {};
 
+    console.log('starting hosting');
     app.peer.on('connection', (connection) => {
+        console.log('new peer: ' + connection.label);
         setupMessageReceipt(connection);
         app.guestConnections[connection.peer] = connection;
 

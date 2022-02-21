@@ -1,6 +1,7 @@
 module Main exposing (..)
 
 import Browser
+import Debug
 import Element exposing (..)
 import Element.Border as Border
 import Element.Events as Events
@@ -124,8 +125,7 @@ init gameId =
 
 
 type Msg
-    = InitHostGame
-    | InitGuestGame
+    = InitGuestGame
     | ResetToIntro
     | SetGameText String
     | SetHostIdForGuest GameId
@@ -187,11 +187,6 @@ encodePlayer player =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        InitHostGame ->
-            ( { model | gameRole = Host, gamePhase = ShowingHostOptions }
-            , Ports.startHosting ()
-            )
-
         InitGuestGame ->
             case model.gameRole of
                 Host ->
@@ -225,7 +220,10 @@ update msg model =
                 Host ->
                     let
                         newPlayerList =
-                            { name = guestName, isHost = False, actions = actionsPerTurn }
+                            { name = Debug.log "new guest" guestName
+                            , isHost = False
+                            , actions = actionsPerTurn
+                            }
                                 :: model.playerList
                     in
                     ( { model | playerList = newPlayerList }
@@ -242,7 +240,12 @@ update msg model =
             )
 
         ShowHostOptions ->
-            ( { model | gamePhase = ShowingHostOptions }, Cmd.none )
+            ( { model
+                | gamePhase = ShowingHostOptions
+                , playerList = [ { name = model.userName, isHost = True, actions = actionsPerTurn } ]
+              }
+            , Ports.startHosting ()
+            )
 
         StartGame ->
             ( { model
@@ -312,9 +315,9 @@ userNameInput userName =
         { label =
             Input.labelAbove
                 [ centerX ]
-                (text "Player name")
+                (text "Your name")
         , onChange = SetUserName
-        , placeholder = Nothing
+        , placeholder = Just (Input.placeholder [] (text "Enter name to start"))
         , text = userName
         }
 
@@ -366,8 +369,8 @@ isValidGameId gameId =
     List.all Char.isLower (String.toList gameId) && (String.length gameId == 20)
 
 
-viewIntro : GameRole -> Html Msg
-viewIntro gameRole =
+viewIntro : PlayerName -> GameRole -> Html Msg
+viewIntro playerName gameRole =
     let
         gameId =
             case gameRole of
@@ -384,9 +387,12 @@ viewIntro gameRole =
     layout [ padding 20 ] <|
         column
             mainColumnStyles
-            [ Input.button
-                (centerX :: buttonStyles True)
-                { onPress = Just ShowHostOptions, label = text "Host game" }
+            [ userNameInput playerName
+            , conditionalButton
+                { msg = ShowHostOptions
+                , isEnabled = not (String.isEmpty playerName)
+                , labelText = "Host game"
+                }
             , Input.text
                 gameIdStyles
                 { label =
@@ -394,12 +400,12 @@ viewIntro gameRole =
                         (centerX :: defaultFontStyles)
                         (conditionalButton
                             { msg = InitGuestGame
-                            , isEnabled = validId
+                            , isEnabled = validId && not (String.isEmpty playerName)
                             , labelText = "Connect to game"
                             }
                         )
                 , onChange = SetHostIdForGuest
-                , placeholder = Just (Input.placeholder [] (text "Game ID"))
+                , placeholder = Just (Input.placeholder [] (text "Enter Game ID to connect to"))
                 , text = gameId
                 }
             ]
@@ -462,8 +468,7 @@ viewGuestLobby gamePhase userName =
     layout [ padding 20 ] <|
         column
             (onLeft resetToIntroButton :: mainColumnStyles ++ [ spacing 40 ])
-            [ userNameInput userName
-            , el [ centerX ] <|
+            [ el [ centerX ] <|
                 case gamePhase of
                     ConnectedAsGuest ->
                         text "Waiting for host to begin..."
@@ -489,7 +494,7 @@ view : Model -> Html Msg
 view model =
     case model.gamePhase of
         NotStarted ->
-            viewIntro model.gameRole
+            viewIntro model.userName model.gameRole
 
         ShowingHostOptions ->
             viewHostOptions model.textString model.gameId model.playerList
@@ -504,7 +509,7 @@ view model =
             viewGame poem
 
         GameOver ->
-            viewIntro model.gameRole
+            viewIntro model.userName model.gameRole
 
 
 
