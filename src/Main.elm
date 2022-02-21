@@ -1,5 +1,6 @@
 module Main exposing (..)
 
+import Array
 import Browser
 import Debug
 import Element exposing (..)
@@ -31,6 +32,11 @@ type TokenState
     | Obscured
 
 
+type alias TokenPosition =
+    -- lineIndex, tokenIndex
+    ( Int, Int )
+
+
 type alias Token =
     { content : String
     , state : TokenState
@@ -38,11 +44,11 @@ type alias Token =
 
 
 type alias TextLine =
-    List Token
+    Array.Array Token
 
 
 type alias Poem =
-    List TextLine
+    Array.Array TextLine
 
 
 actionsPerTurn : Int
@@ -134,7 +140,7 @@ type Msg
     | ShowHostOptions
     | StartGame
     | ReceivedGameMessage (Result D.Error GameMessage)
-    | SetTokenState
+    | SetTokenState TokenPosition TokenState
 
 
 makeToken : String -> Token
@@ -146,9 +152,9 @@ makeToken s =
 
 makeText : String -> Poem
 makeText s =
-    String.split "\n" s
-        |> List.map (\line -> String.split " " line)
-        |> List.map (List.map makeToken)
+    (Array.fromList <| String.split "\n" s)
+        |> Array.map (\line -> String.split " " line |> Array.fromList)
+        |> Array.map (Array.map makeToken)
 
 
 handleGameMessage : Model -> GameMessage -> Model
@@ -204,7 +210,7 @@ encodeToken token =
 
 encodePoem : Poem -> E.Value
 encodePoem poem =
-    E.list (\line -> E.list encodeToken line) poem
+    E.list (\line -> E.list encodeToken (Array.toList line)) (Array.toList poem)
 
 
 encodeGameMsg : GameMessage -> E.Value
@@ -225,6 +231,25 @@ encodeGameMsg gameMsg =
                 ]
 
 
+updateTokenState : TokenPosition -> TokenState -> Poem -> Poem
+updateTokenState tokenPosition tokenState poem =
+    let
+        ( lineIndex, tokenIndex ) =
+            tokenPosition
+    in
+    case Array.get lineIndex poem of
+        Nothing ->
+            poem
+
+        Just line ->
+            case Array.get tokenIndex line of
+                Nothing ->
+                    poem
+
+                Just token ->
+                    Array.set lineIndex (Array.set tokenIndex { token | state = tokenState } line) poem
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -241,6 +266,7 @@ update msg model =
 
         ResetToIntro ->
             ( { model | gamePhase = NotStarted, gameRole = Guest "" }
+              -- TODO: disconnect from host / end game?
             , Cmd.none
             )
 
@@ -285,6 +311,7 @@ update msg model =
             ( model, Cmd.none )
 
         ReceivedGameMessage (Ok gameMsg) ->
+            -- TODO: maybe should only handle this if user is in game or lobby
             let
                 newModel =
                     handleGameMessage model gameMsg
@@ -303,8 +330,27 @@ update msg model =
                     Cmd.none
             )
 
-        SetTokenState ->
-            ( model, Cmd.none )
+        SetTokenState tokenPosition tokenState ->
+            case model.gamePhase of
+                InGame poem ->
+                    let
+                        newPoem =
+                            updateTokenState tokenPosition tokenState poem
+
+                        sendPort =
+                            case model.gameRole of
+                                Host ->
+                                    Ports.sendAsHost
+
+                                Guest _ ->
+                                    Ports.sendAsGuest
+                    in
+                    ( { model | gamePhase = InGame newPoem }
+                    , sendPort (encodeGameMsg <| GameAction newPoem model.playerList)
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
 
 
 
@@ -531,8 +577,8 @@ viewGuestLobby gamePhase userName playerList =
             ]
 
 
-viewToken : Token -> Element Msg
-viewToken token =
+viewToken : Int -> Int -> Token -> Element Msg
+viewToken lineIndex tokenIndex token =
     let
         textColorAttribute =
             case token.state of
@@ -542,19 +588,24 @@ viewToken token =
                 _ ->
                     []
     in
-    el (Events.onClick SetTokenState :: textColorAttribute) (text token.content)
+    el
+        (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) Obscured)
+            :: textColorAttribute
+        )
+        (text token.content)
 
 
-viewPoemLine : TextLine -> List (Element Msg)
-viewPoemLine line =
-    List.intersperse (el [] (text " ")) <| List.map viewToken line
+viewPoemLine : Int -> TextLine -> List (Element Msg)
+viewPoemLine lineIndex line =
+    List.intersperse (el [] (text " ")) <| List.indexedMap (viewToken lineIndex) (Array.toList line)
 
 
 viewGame : Poem -> Html Msg
 viewGame poem =
     layout [ padding 20 ] <|
-        Element.textColumn (onLeft resetToIntroButton :: mainColumnStyles ++ [ spacing 10, padding 10 ])
-            (List.map (\line -> paragraph [] (viewPoemLine line)) poem)
+        Element.textColumn
+            (onLeft resetToIntroButton :: mainColumnStyles ++ [ spacing 10, padding 10 ])
+            (List.indexedMap (\i line -> paragraph [] (viewPoemLine i line)) (Array.toList poem))
 
 
 view : Model -> Html Msg
@@ -627,7 +678,7 @@ tokenDecoder =
 
 poemDecoder : D.Decoder Poem
 poemDecoder =
-    D.list (D.list tokenDecoder)
+    D.array (D.array tokenDecoder)
 
 
 gameActionDecoder : D.Decoder GameMessage
