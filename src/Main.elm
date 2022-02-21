@@ -3,6 +3,7 @@ module Main exposing (..)
 import Array
 import Browser
 import Element exposing (..)
+import Element.Background as Background
 import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
@@ -109,6 +110,7 @@ type alias Model =
     , playerList : PlayerList
     , gamePhase : GamePhase
     , textString : String
+    , confirmReset : Bool
     }
 
 
@@ -120,6 +122,7 @@ init gameId =
       , playerList = []
       , gamePhase = NotStarted
       , textString = ""
+      , confirmReset = False
       }
     , Cmd.none
     )
@@ -144,6 +147,7 @@ type Msg
     = HostMsg HostMsg
     | GuestMsg GuestMsg
     | ResetToIntro
+    | ClearResetModal
     | SetHostIdForGuest GameId
     | SetUserName PlayerName
     | ReceivedGameMessage (Result D.Error GameMessage)
@@ -326,10 +330,20 @@ update msg model =
 
         -- general navigation changes
         ResetToIntro ->
-            ( { model | gamePhase = NotStarted, gameRole = Guest "" }
-              -- TODO: disconnect from host / end game?
-            , Cmd.none
-            )
+            let
+                newModel =
+                    case ( model.gamePhase, model.confirmReset ) of
+                        ( InGame _, False ) ->
+                            { model | confirmReset = True }
+
+                        _ ->
+                            { model | gamePhase = NotStarted, gameRole = Guest "", confirmReset = False }
+            in
+            -- TODO: disconnect from host / end game?
+            ( newModel, Cmd.none )
+
+        ClearResetModal ->
+            ( { model | confirmReset = False }, Cmd.none )
 
         -- game state changes
         ReceivedGameMessage (Err err) ->
@@ -393,18 +407,24 @@ basePadding =
 
 buttonStyles : Bool -> List (Element.Attribute Msg)
 buttonStyles isEnabled =
-    [ padding 10
-    , Border.solid
+    [ Border.color (rgb 0 0 0)
     , Border.width 1
-    , Border.rounded 5
-    , Border.color (rgb 0 0 0)
     ]
+        ++ roundedBoxStyles
         ++ (if isEnabled then
                 []
 
             else
                 [ Font.color (rgb 0.5 0.5 0.5) ]
            )
+
+
+roundedBoxStyles : List (Element.Attribute Msg)
+roundedBoxStyles =
+    [ padding 10
+    , Border.solid
+    , Border.rounded 5
+    ]
 
 
 conditionalButton : { isEnabled : Bool, msg : Msg, labelText : String } -> Element Msg
@@ -626,11 +646,61 @@ viewPoemLine lineIndex line =
     List.intersperse (el [] (text " ")) <| List.indexedMap (viewToken lineIndex) (Array.toList line)
 
 
-viewGame : Poem -> Html Msg
-viewGame poem =
-    layout [ padding 20 ] <|
+boxShadowStyles : List (Element.Attribute Msg)
+boxShadowStyles =
+    [ Border.shadow { offset = ( 1.0, 2.0 ), blur = 2.0, size = 2.0, color = rgba 0 0 0 0.333 }
+    , Border.shadow { offset = ( 2.0, 4.0 ), blur = 4.0, size = 4.0, color = rgba 0 0 0 0.333 }
+    , Border.shadow { offset = ( 3.0, 6.0 ), blur = 6.0, size = 6.0, color = rgba 0 0 0 0.333 }
+    ]
+
+
+viewConfirmModal : GameRole -> Element.Attribute Msg
+viewConfirmModal gameRole =
+    let
+        warningText =
+            case gameRole of
+                Host ->
+                    "Are you sure? This will end the game and disconnect all players."
+
+                Guest _ ->
+                    "Are you sure? This will leave the game."
+    in
+    inFront <|
+        el [ centerX, centerY, width (px 400), height shrink ] <|
+            column
+                (roundedBoxStyles
+                    ++ boxShadowStyles
+                    ++ [ centerX, centerY, Background.color (rgb 1.0 1.0 1.0), spacing 20, padding 30 ]
+                )
+                [ paragraph [] [ text warningText ]
+                , row [ width fill, spaceEvenly ]
+                    [ Input.button
+                        (buttonStyles True ++ [ Border.color (rgb 1.0 0.2 0.2) ])
+                        { onPress = Just ResetToIntro, label = text "Yes, quit" }
+                    , Input.button
+                        (buttonStyles True)
+                        { onPress = Just ClearResetModal, label = text "No, stay" }
+                    ]
+                ]
+
+
+viewGame : Poem -> Bool -> GameRole -> Html Msg
+viewGame poem confirmReset gameRole =
+    layout
+        ([ padding 20 ]
+            ++ (if confirmReset then
+                    [ viewConfirmModal gameRole ]
+
+                else
+                    []
+               )
+        )
+    <|
         Element.textColumn
-            (onLeft resetToIntroButton :: mainColumnStyles ++ [ spacing 10, padding 10 ])
+            (onLeft resetToIntroButton
+                :: mainColumnStyles
+                ++ [ spacing 10, padding 10 ]
+            )
             (List.indexedMap (\i line -> paragraph [] (viewPoemLine i line)) (Array.toList poem))
 
 
@@ -650,7 +720,7 @@ view model =
             viewGuestLobby model.gamePhase model.userName model.playerList
 
         InGame poem ->
-            viewGame poem
+            viewGame poem model.confirmReset model.gameRole
 
         GameOver ->
             viewIntro model.userName model.gameRole
