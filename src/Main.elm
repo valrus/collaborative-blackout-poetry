@@ -83,6 +83,7 @@ type GameMessage
     = GuestJoined PlayerName
     | UpdatePlayerList PlayerList
     | GameAction Poem PlayerList
+    | Disconnection (Maybe PlayerName)
 
 
 
@@ -124,7 +125,7 @@ init gameId =
       , textString = ""
       , confirmReset = False
       }
-    , Cmd.none
+    , Ports.init gameId
     )
 
 
@@ -191,6 +192,14 @@ handleGameMessage model gameMsg =
         GameAction poem playerList ->
             { model | gamePhase = InGame poem, playerList = playerList }
 
+        Disconnection hostOrPlayerName ->
+            case hostOrPlayerName of
+                Just playerName ->
+                    { model | playerList = List.filter (\player -> player.name /= playerName) model.playerList }
+
+                Nothing ->
+                    { model | gamePhase = NotStarted, gameRole = Guest "" }
+
 
 encodePlayer : Player -> E.Value
 encodePlayer player =
@@ -240,6 +249,9 @@ encodeGameMsg gameMsg =
                   , E.list encodePlayer playerList
                   )
                 ]
+
+        Disconnection hostOrPlayerName ->
+            E.object [ ( "disconnection", Maybe.withDefault E.null (Maybe.map E.string hostOrPlayerName) ) ]
 
 
 updateTokenState : TokenPosition -> TokenState -> Poem -> Poem
@@ -297,15 +309,25 @@ handleGuestMsg guestMsg model =
                     -- TODO add error
                     ( model, Cmd.none )
 
-                Guest hostId ->
+                Guest gameId ->
                     ( { model | gamePhase = ConnectingAsGuest }
-                    , Ports.connectToHost hostId
+                    , Ports.connectToHost gameId
                     )
 
-        ConnectedToHost hostId ->
-            ( { model | gameRole = Guest hostId, gamePhase = ConnectedAsGuest }
+        ConnectedToHost gameId ->
+            ( { model | gameRole = Guest gameId, gamePhase = ConnectedAsGuest }
             , Ports.sendAsGuest <| encodeGameMsg (GuestJoined model.userName)
             )
+
+
+sendForRole : GameRole -> (E.Value -> Cmd msg)
+sendForRole gameRole =
+    case gameRole of
+        Host ->
+            Ports.sendAsHost
+
+        Guest _ ->
+            Ports.sendAsGuest
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -318,8 +340,8 @@ update msg model =
             , Cmd.none
             )
 
-        SetHostIdForGuest hostId ->
-            ( { model | gameRole = Guest hostId }, Cmd.none )
+        SetHostIdForGuest gameId ->
+            ( { model | gameRole = Guest gameId }, Cmd.none )
 
         -- host/guest specific setup changes
         HostMsg hostMsg ->
@@ -339,8 +361,13 @@ update msg model =
                         _ ->
                             { model | gamePhase = NotStarted, gameRole = Guest "", confirmReset = False }
             in
-            -- TODO: disconnect from host / end game?
-            ( newModel, Cmd.none )
+            ( newModel
+            , if newModel.confirmReset == True then
+                Cmd.none
+
+              else
+                Ports.reset (Just model.userName)
+            )
 
         ClearResetModal ->
             ( { model | confirmReset = False }, Cmd.none )
@@ -362,9 +389,17 @@ update msg model =
                     -- forward the whole player list out
                     Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList newModel.playerList)
 
+                ( Host, Disconnection playerName ) ->
+                    -- forward the whole player list out
+                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList newModel.playerList)
+
                 ( Host, _ ) ->
                     -- forward the received message
                     Ports.sendAsHost (encodeGameMsg gameMsg)
+
+                ( Guest _, Disconnection _ ) ->
+                    -- disconnection from host, reset
+                    Ports.reset Nothing
 
                 ( Guest _, _ ) ->
                     Cmd.none
@@ -376,17 +411,9 @@ update msg model =
                     let
                         newPoem =
                             updateTokenState tokenPosition tokenState poem
-
-                        sendPort =
-                            case model.gameRole of
-                                Host ->
-                                    Ports.sendAsHost
-
-                                Guest _ ->
-                                    Ports.sendAsGuest
                     in
                     ( { model | gamePhase = InGame newPoem }
-                    , sendPort (encodeGameMsg <| GameAction newPoem model.playerList)
+                    , sendForRole model.gameRole (encodeGameMsg <| GameAction newPoem model.playerList)
                     )
 
                 _ ->
@@ -560,7 +587,7 @@ isValidPoemString s =
 
 
 viewHostOptions : String -> GameId -> PlayerList -> Html Msg
-viewHostOptions textString hostId playerList =
+viewHostOptions textString gameId playerList =
     let
         validPoemText =
             isValidPoemString textString
@@ -578,7 +605,7 @@ viewHostOptions textString hostId playerList =
             )
             [ column [ spacing 20, centerX ]
                 [ el [ centerX ] (text "Game ID")
-                , el gameIdStyles (text hostId)
+                , el gameIdStyles (text gameId)
                 ]
             , column [ spacing 20 ]
                 [ Input.multiline
@@ -784,12 +811,18 @@ gameActionDecoder =
         (D.at [ "playerList" ] (D.list playerDecoder))
 
 
+disconnectionDecoder : D.Decoder GameMessage
+disconnectionDecoder =
+    D.map Disconnection <| D.field "disconnection" (D.maybe D.string)
+
+
 gameMessageDecoder : D.Decoder GameMessage
 gameMessageDecoder =
     D.oneOf
         [ guestJoinedDecoder -- PlayerName
         , updatePlayerListDecoder -- PlayerList
         , gameActionDecoder -- Poem PlayerList
+        , disconnectionDecoder -- Maybe PlayerName
         ]
 
 
@@ -798,4 +831,5 @@ subscriptions _ =
     Sub.batch
         [ Ports.connectedAsGuest (ConnectedToHost >> GuestMsg)
         , Ports.receivedMessage (ReceivedGameMessage << D.decodeValue gameMessageDecoder)
+        , Ports.disconnect (\_ -> ResetToIntro)
         ]

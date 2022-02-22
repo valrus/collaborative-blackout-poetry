@@ -17,8 +17,14 @@ port guestConnected : (String -> msg) -> Sub msg
 port receivedMessage : (E.Value -> msg) -> Sub msg
 
 
+port disconnect : (() -> msg) -> Sub msg
+
+
 
 -- OUTGOING
+
+
+port init : String -> Cmd msg
 
 
 port startHosting : () -> Cmd msg
@@ -31,3 +37,8 @@ port sendAsGuest : E.Value -> Cmd msg
 
 
 port sendAsHost : E.Value -> Cmd msg
+
+
+port reset :
+    Maybe String
+    -> Cmd msg -- Tell JS to reset the peer
