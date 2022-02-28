@@ -653,19 +653,43 @@ viewGuestLobby gamePhase userName playerList =
 viewToken : Int -> Int -> Token -> Element Msg
 viewToken lineIndex tokenIndex token =
     let
-        textColorAttribute =
+        textColorAttributes =
             case token.state of
                 Obscured ->
                     [ Font.color (rgb 1.0 1.0 1.0) ]
 
                 _ ->
                     []
+
+        ( textOuterAttributes, textBorderAttributes ) =
+            case token.state of
+                Circled ->
+                    ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ], [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ] )
+
+                _ ->
+                    ( [], [] )
+
+        nextTokenState =
+            case token.state of
+                Default ->
+                    Circled
+
+                Circled ->
+                    Obscured
+
+                Obscured ->
+                    Default
     in
     el
-        (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) Obscured)
-            :: textColorAttribute
+        -- We need an extra wrapper for both outer and inner glow; see
+        -- https://github.com/mdgriffith/elm-ui/issues/18
+        textOuterAttributes
+        (el
+            (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) nextTokenState)
+                :: (textColorAttributes ++ textBorderAttributes)
+            )
+            (text token.content)
         )
-        (text token.content)
 
 
 viewPoemLine : Int -> TextLine -> List (Element Msg)
