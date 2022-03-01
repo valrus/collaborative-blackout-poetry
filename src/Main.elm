@@ -68,21 +68,24 @@ type alias PlayerName =
     String
 
 
-type alias Player =
+type alias PlayerData =
     { name : PlayerName
-    , isHost : Bool
     , actions : Int
     }
 
 
-type alias PlayerList =
+type alias OtherPlayersList =
+    List Player
+
+
+type alias AllPlayersList =
     List Player
 
 
 type GameMessage
     = GuestJoined PlayerName
-    | UpdatePlayerList PlayerList
-    | GameAction Poem PlayerList
+    | UpdatePlayerList AllPlayersList
+    | GameAction Poem AllPlayersList
     | Disconnection (Maybe PlayerName)
 
 
@@ -99,28 +102,35 @@ type GamePhase
     | GameOver
 
 
-type GameRole
-    = Host
-    | Guest GameId
+type Player
+    = Host PlayerData
+    | Guest PlayerData (Maybe GameId)
+
+
+type alias ConfirmResetFlag =
+    Bool
 
 
 type alias Model =
     { gameId : GameId
-    , gameRole : GameRole
-    , userName : PlayerName
-    , playerList : PlayerList
+    , player : Player
+    , otherPlayers : OtherPlayersList
     , gamePhase : GamePhase
     , textString : String
-    , confirmReset : Bool
+    , confirmReset : ConfirmResetFlag
     }
+
+
+startingPlayer : Player
+startingPlayer =
+    Guest { name = "", actions = actionsPerTurn } Nothing
 
 
 init : String -> ( Model, Cmd Msg )
 init gameId =
     ( { gameId = gameId
-      , gameRole = Guest ""
-      , userName = ""
-      , playerList = []
+      , player = startingPlayer
+      , otherPlayers = []
       , gamePhase = NotStarted
       , textString = ""
       , confirmReset = False
@@ -169,44 +179,82 @@ makeText s =
         |> Array.map (Array.map makeToken)
 
 
+nameOfPlayer : Player -> String
+nameOfPlayer =
+    dataForPlayer >> .name
+
+
+actionsForPlayer : Player -> Int
+actionsForPlayer =
+    dataForPlayer >> .actions
+
+
+dataForPlayer : Player -> PlayerData
+dataForPlayer player =
+    case player of
+        Host playerData ->
+            playerData
+
+        Guest playerData _ ->
+            playerData
+
+
+getOtherPlayers : AllPlayersList -> Player -> OtherPlayersList
+getOtherPlayers allPlayers currentPlayer =
+    List.filter (\player -> nameOfPlayer player /= nameOfPlayer currentPlayer) allPlayers
+
+
 handleGameMessage : Model -> GameMessage -> Model
 handleGameMessage model gameMsg =
     case gameMsg of
         GuestJoined playerName ->
-            case model.gameRole of
-                Host ->
-                    let
-                        newPlayerList =
-                            { name = playerName, isHost = False, actions = actionsPerTurn }
-                                :: model.playerList
-                    in
-                    { model | playerList = newPlayerList }
+            case model.player of
+                Host myData ->
+                    { model
+                        | otherPlayers =
+                            Guest { name = playerName, actions = actionsPerTurn } (Just model.gameId)
+                                :: model.otherPlayers
+                    }
 
-                Guest _ ->
-                    -- Shouldn't happen
+                Guest _ _ ->
+                    -- Shouldn't happen. TODO show an error of some kind?
                     model
 
-        UpdatePlayerList playerList ->
-            { model | playerList = playerList }
+        UpdatePlayerList allPlayers ->
+            { model
+                | otherPlayers =
+                    List.filter
+                        (\player -> nameOfPlayer player /= nameOfPlayer model.player)
+                        allPlayers
+            }
 
-        GameAction poem playerList ->
-            { model | gamePhase = InGame poem, playerList = playerList }
+        GameAction poem allPlayers ->
+            { model | gamePhase = InGame poem, otherPlayers = getOtherPlayers allPlayers model.player }
 
         Disconnection hostOrPlayerName ->
             case hostOrPlayerName of
                 Just playerName ->
-                    { model | playerList = List.filter (\player -> player.name /= playerName) model.playerList }
+                    { model | otherPlayers = List.filter (\player -> nameOfPlayer player /= playerName) model.otherPlayers }
 
                 Nothing ->
-                    { model | gamePhase = NotStarted, gameRole = Guest "" }
+                    { model | gamePhase = NotStarted, player = startingPlayer }
 
 
 encodePlayer : Player -> E.Value
 encodePlayer player =
+    let
+        isHost =
+            case player of
+                Host _ ->
+                    True
+
+                Guest _ _ ->
+                    False
+    in
     E.object
-        [ ( "name", E.string player.name )
-        , ( "isHost", E.bool player.isHost )
-        , ( "actions", E.int player.actions )
+        [ ( "name", E.string <| nameOfPlayer player )
+        , ( "isHost", E.bool isHost )
+        , ( "actions", E.int <| actionsForPlayer player )
         ]
 
 
@@ -239,14 +287,14 @@ encodeGameMsg gameMsg =
         GuestJoined playerName ->
             E.object [ ( "guestName", E.string playerName ) ]
 
-        UpdatePlayerList playerList ->
-            E.list encodePlayer playerList
+        UpdatePlayerList allPlayers ->
+            E.list encodePlayer allPlayers
 
-        GameAction poem playerList ->
+        GameAction poem otherPlayers ->
             E.object
                 [ ( "poem", encodePoem poem )
-                , ( "playerList"
-                  , E.list encodePlayer playerList
+                , ( "otherPlayers"
+                  , E.list encodePlayer otherPlayers
                   )
                 ]
 
@@ -279,8 +327,7 @@ handleHostMsg hostMsg model =
         ShowHostOptions ->
             ( { model
                 | gamePhase = ShowingHostOptions
-                , gameRole = Host
-                , playerList = [ { name = model.userName, isHost = True, actions = actionsPerTurn } ]
+                , player = Host { name = nameOfPlayer model.player, actions = actionsPerTurn }
               }
             , Ports.startHosting ()
             )
@@ -296,7 +343,7 @@ handleHostMsg hostMsg model =
             ( { model
                 | gamePhase = InGame poem
               }
-            , Ports.sendAsHost (encodeGameMsg <| GameAction poem model.playerList)
+            , Ports.sendAsHost (encodeGameMsg <| GameAction poem (getAllPlayers model))
             )
 
 
@@ -304,29 +351,45 @@ handleGuestMsg : GuestMsg -> Model -> ( Model, Cmd Msg )
 handleGuestMsg guestMsg model =
     case guestMsg of
         InitGuestGame ->
-            case model.gameRole of
-                Host ->
+            case model.player of
+                Host _ ->
                     -- TODO add error
                     ( model, Cmd.none )
 
-                Guest gameId ->
+                Guest _ Nothing ->
+                    -- TODO add error
+                    ( model, Cmd.none )
+
+                Guest playerData (Just gameId) ->
                     ( { model | gamePhase = ConnectingAsGuest }
                     , Ports.connectToHost gameId
                     )
 
         ConnectedToHost gameId ->
-            ( { model | gameRole = Guest gameId, gamePhase = ConnectedAsGuest }
-            , Ports.sendAsGuest <| encodeGameMsg (GuestJoined model.userName)
+            let
+                playerData =
+                    case model.player of
+                        Host data ->
+                            data
+
+                        Guest data _ ->
+                            data
+            in
+            ( { model
+                | player = Guest playerData (Just gameId)
+                , gamePhase = ConnectedAsGuest
+              }
+            , Ports.sendAsGuest <| encodeGameMsg (GuestJoined <| nameOfPlayer model.player)
             )
 
 
-sendForRole : GameRole -> (E.Value -> Cmd msg)
-sendForRole gameRole =
-    case gameRole of
-        Host ->
+sendForRole : Player -> (E.Value -> Cmd msg)
+sendForRole player =
+    case player of
+        Host _ ->
             Ports.sendAsHost
 
-        Guest _ ->
+        Guest _ _ ->
             Ports.sendAsGuest
 
 
@@ -335,13 +398,24 @@ update msg model =
     case msg of
         -- intro screen changes
         SetUserName name ->
-            ( { model | userName = name }
+            let
+                playerWithNewName =
+                    case model.player of
+                        Guest playerData gameId ->
+                            Guest { playerData | name = name } gameId
+
+                        Host playerData ->
+                            Host { playerData | name = name }
+            in
+            ( { model | player = playerWithNewName }
               -- TODO send to other players
             , Cmd.none
             )
 
         SetHostIdForGuest gameId ->
-            ( { model | gameRole = Guest gameId }, Cmd.none )
+            ( { model | player = Guest (dataForPlayer model.player) (Just gameId) }
+            , Cmd.none
+            )
 
         -- host/guest specific setup changes
         HostMsg hostMsg ->
@@ -359,14 +433,14 @@ update msg model =
                             { model | confirmReset = True }
 
                         _ ->
-                            { model | gamePhase = NotStarted, gameRole = Guest "", confirmReset = False }
+                            { model | gamePhase = NotStarted, player = startingPlayer, confirmReset = False }
             in
             ( newModel
             , if newModel.confirmReset == True then
                 Cmd.none
 
               else
-                Ports.reset (Just model.userName)
+                Ports.reset (Just <| nameOfPlayer model.player)
             )
 
         ClearResetModal ->
@@ -384,24 +458,24 @@ update msg model =
                     handleGameMessage model gameMsg
             in
             ( newModel
-            , case ( newModel.gameRole, gameMsg ) of
-                ( Host, GuestJoined playerName ) ->
+            , case ( newModel.player, gameMsg ) of
+                ( Host _, GuestJoined playerName ) ->
                     -- forward the whole player list out
-                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList newModel.playerList)
+                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList (getAllPlayers newModel))
 
-                ( Host, Disconnection playerName ) ->
+                ( Host _, Disconnection playerName ) ->
                     -- forward the whole player list out
-                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList newModel.playerList)
+                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList (getAllPlayers newModel))
 
-                ( Host, _ ) ->
+                ( Host _, _ ) ->
                     -- forward the received message
                     Ports.sendAsHost (encodeGameMsg gameMsg)
 
-                ( Guest _, Disconnection _ ) ->
+                ( Guest _ _, Disconnection _ ) ->
                     -- disconnection from host, reset
                     Ports.reset Nothing
 
-                ( Guest _, _ ) ->
+                ( Guest _ _, _ ) ->
                     Cmd.none
             )
 
@@ -413,7 +487,7 @@ update msg model =
                             updateTokenState tokenPosition tokenState poem
                     in
                     ( { model | gamePhase = InGame newPoem }
-                    , sendForRole model.gameRole (encodeGameMsg <| GameAction newPoem model.playerList)
+                    , sendForRole model.player (encodeGameMsg <| GameAction newPoem model.otherPlayers)
                     )
 
                 _ ->
@@ -492,20 +566,22 @@ resetToIntroButton =
     Input.button (buttonStyles True) { onPress = Just ResetToIntro, label = text "Back" }
 
 
-viewPlayerList : PlayerList -> Element Msg
+viewPlayerList : AllPlayersList -> Element Msg
 viewPlayerList playerList =
     column [ spacing 5, alignLeft ]
         (el [] (text "Players")
             :: List.map
                 (\player ->
-                    el
-                        (if player.isHost then
-                            [ Font.bold ]
+                    let
+                        textAttrs =
+                            case player of
+                                Host _ ->
+                                    [ Font.bold ]
 
-                         else
-                            []
-                        )
-                        (text player.name)
+                                _ ->
+                                    []
+                    in
+                    el textAttrs (text <| nameOfPlayer player)
                 )
                 playerList
         )
@@ -529,22 +605,23 @@ mainColumnStyles =
     ]
 
 
-isValidGameId : GameId -> Bool
-isValidGameId gameId =
-    List.all Char.isLower (String.toList gameId) && (String.length gameId == 20)
+isValidGameId : Maybe GameId -> Bool
+isValidGameId =
+    Maybe.map (\id -> List.all Char.isLower (String.toList id) && (String.length id == 20))
+        >> Maybe.withDefault False
 
 
-viewIntro : PlayerName -> GameRole -> Html Msg
-viewIntro playerName gameRole =
+viewIntro : Player -> Html Msg
+viewIntro player =
     let
         gameId =
-            case gameRole of
-                Guest id ->
+            case player of
+                Guest _ id ->
                     id
 
-                Host ->
+                Host _ ->
                     -- Shouldn't ever happen
-                    "N/A"
+                    Nothing
 
         validId =
             isValidGameId gameId
@@ -552,10 +629,10 @@ viewIntro playerName gameRole =
     layout [ padding 20 ] <|
         column
             mainColumnStyles
-            [ userNameInput playerName
+            [ userNameInput <| nameOfPlayer player
             , conditionalButton
                 { msg = HostMsg ShowHostOptions
-                , isEnabled = not (String.isEmpty playerName)
+                , isEnabled = not (String.isEmpty <| nameOfPlayer player)
                 , labelText = "Host game"
                 }
             , Input.text
@@ -565,13 +642,13 @@ viewIntro playerName gameRole =
                         (centerX :: defaultFontStyles)
                         (conditionalButton
                             { msg = GuestMsg InitGuestGame
-                            , isEnabled = validId && not (String.isEmpty playerName)
+                            , isEnabled = validId && not (String.isEmpty <| nameOfPlayer player)
                             , labelText = "Connect to game"
                             }
                         )
                 , onChange = SetHostIdForGuest
                 , placeholder = Just (Input.placeholder [] (text "Game ID from host"))
-                , text = gameId
+                , text = Maybe.withDefault "" gameId
                 }
             ]
 
@@ -586,8 +663,17 @@ isValidPoemString s =
     (String.words s |> List.length) > minTextWords
 
 
-viewHostOptions : String -> GameId -> PlayerList -> Html Msg
-viewHostOptions textString gameId playerList =
+viewLeftSidebar : AllPlayersList -> Element.Attribute Msg
+viewLeftSidebar allPlayers =
+    onLeft
+        (column
+            [ width (px 100), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
+            [ resetToIntroButton, viewPlayerList allPlayers ]
+        )
+
+
+viewHostOptions : String -> GameId -> AllPlayersList -> Html Msg
+viewHostOptions textString gameId allPlayers =
     let
         validPoemText =
             isValidPoemString textString
@@ -595,11 +681,7 @@ viewHostOptions textString gameId playerList =
     layout [ padding 20 ] <|
         column
             (mainColumnStyles
-                ++ [ onLeft
-                        (column
-                            [ width (px 100), spacing 20 ]
-                            [ resetToIntroButton, viewPlayerList playerList ]
-                        )
+                ++ [ viewLeftSidebar allPlayers
                    , spacing 60
                    ]
             )
@@ -628,15 +710,11 @@ viewHostOptions textString gameId playerList =
             ]
 
 
-viewGuestLobby : GamePhase -> PlayerName -> PlayerList -> Html Msg
-viewGuestLobby gamePhase userName playerList =
+viewGuestLobby : GamePhase -> AllPlayersList -> Html Msg
+viewGuestLobby gamePhase allPlayers =
     layout [ padding 20 ] <|
         column
-            (onLeft
-                (column
-                    [ width (px 100), spacing 20 ]
-                    [ resetToIntroButton, viewPlayerList playerList ]
-                )
+            (viewLeftSidebar allPlayers
                 :: mainColumnStyles
                 ++ [ spacing 40 ]
             )
@@ -653,48 +731,47 @@ viewGuestLobby gamePhase userName playerList =
 viewToken : Int -> Int -> Token -> Element Msg
 viewToken lineIndex tokenIndex token =
     let
-        textColorAttributes =
-            case token.state of
-                Obscured ->
-                    [ Font.color (rgb 1.0 1.0 1.0) ]
+        baseAttributes =
+            [ Events.onClick (SetTokenState ( lineIndex, tokenIndex ) nextTokenState)
+            , pointer
+            ]
 
-                _ ->
-                    []
-
-        ( textOuterAttributes, textBorderAttributes ) =
-            case token.state of
-                Circled ->
-                    ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ], [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ] )
-
-                _ ->
-                    ( [], [] )
-
-        nextTokenState =
+        ( textOuterAttributes, textAttributes, nextTokenState ) =
             case token.state of
                 Default ->
-                    Circled
+                    ( []
+                    , []
+                    , Circled
+                    )
 
                 Circled ->
-                    Obscured
+                    ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ]
+                    , [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ]
+                    , Obscured
+                    )
 
                 Obscured ->
-                    Default
+                    ( []
+                    , [ Font.color (rgb 1.0 1.0 1.0) ]
+                    , Default
+                    )
     in
     el
         -- We need an extra wrapper for both outer and inner glow; see
         -- https://github.com/mdgriffith/elm-ui/issues/18
         textOuterAttributes
         (el
-            (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) nextTokenState)
-                :: (textColorAttributes ++ textBorderAttributes)
-            )
+            (baseAttributes ++ textAttributes)
             (text token.content)
         )
 
 
 viewPoemLine : Int -> TextLine -> List (Element Msg)
 viewPoemLine lineIndex line =
-    List.intersperse (el [] (text " ")) <| List.indexedMap (viewToken lineIndex) (Array.toList line)
+    List.intersperse (el [] (text " ")) <|
+        List.indexedMap
+            (viewToken lineIndex)
+            (Array.toList line)
 
 
 boxShadowStyles : List (Element.Attribute Msg)
@@ -705,15 +782,15 @@ boxShadowStyles =
     ]
 
 
-viewConfirmModal : GameRole -> Element.Attribute Msg
-viewConfirmModal gameRole =
+viewConfirmModal : Player -> Element.Attribute Msg
+viewConfirmModal player =
     let
         warningText =
-            case gameRole of
-                Host ->
+            case player of
+                Host _ ->
                     "Are you sure? This will end the game and disconnect all players."
 
-                Guest _ ->
+                Guest _ _ ->
                     "Are you sure? This will leave the game."
     in
     inFront <|
@@ -735,12 +812,22 @@ viewConfirmModal gameRole =
                 ]
 
 
-viewGame : Poem -> Bool -> GameRole -> Html Msg
-viewGame poem confirmReset gameRole =
+viewRightSidebar : Element.Attribute Msg
+viewRightSidebar =
+    onRight
+        (column
+            [ width (px 100), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
+            []
+        )
+
+
+viewGame : Poem -> Model -> Html Msg
+viewGame poem model =
     layout
-        ([ padding 20 ]
-            ++ (if confirmReset then
-                    [ viewConfirmModal gameRole ]
+        ([ padding 20
+         ]
+            ++ (if model.confirmReset then
+                    [ viewConfirmModal model.player ]
 
                 else
                     []
@@ -748,33 +835,49 @@ viewGame poem confirmReset gameRole =
         )
     <|
         Element.textColumn
-            (onLeft resetToIntroButton
+            (viewLeftSidebar (getAllPlayers model)
+                :: viewRightSidebar
                 :: mainColumnStyles
-                ++ [ spacing 10, padding 10 ]
+                ++ [ spacing 10
+                   , padding 10
+                   , Font.family [ Font.serif ]
+                   ]
             )
-            (List.indexedMap (\i line -> paragraph [] (viewPoemLine i line)) (Array.toList poem))
+            (List.indexedMap
+                (\i line ->
+                    paragraph
+                        []
+                        (viewPoemLine i line)
+                )
+                (Array.toList poem)
+            )
+
+
+getAllPlayers : Model -> AllPlayersList
+getAllPlayers model =
+    model.player :: model.otherPlayers
 
 
 view : Model -> Html Msg
 view model =
     case model.gamePhase of
         NotStarted ->
-            viewIntro model.userName model.gameRole
+            viewIntro model.player
 
         ShowingHostOptions ->
-            viewHostOptions model.textString model.gameId model.playerList
+            viewHostOptions model.textString model.gameId (getAllPlayers model)
 
         ConnectingAsGuest ->
-            viewGuestLobby model.gamePhase model.userName model.playerList
+            viewGuestLobby model.gamePhase (getAllPlayers model)
 
         ConnectedAsGuest ->
-            viewGuestLobby model.gamePhase model.userName model.playerList
+            viewGuestLobby model.gamePhase (getAllPlayers model)
 
         InGame poem ->
-            viewGame poem model.confirmReset model.gameRole
+            viewGame poem model
 
         GameOver ->
-            viewIntro model.userName model.gameRole
+            viewIntro model.player
 
 
 
@@ -786,12 +889,25 @@ guestJoinedDecoder =
     D.map GuestJoined <| D.field "guestName" D.string
 
 
+playerDataDecoder : D.Decoder PlayerData
+playerDataDecoder =
+    D.map2 PlayerData
+        (D.field "name" D.string)
+        (D.field "actions" D.int)
+
+
 playerDecoder : D.Decoder Player
 playerDecoder =
-    D.map3 Player
-        (D.field "name" D.string)
-        (D.field "isHost" D.bool)
-        (D.field "actions" D.int)
+    D.field "isHost" D.bool
+        |> D.andThen
+            (\isHost ->
+                case isHost of
+                    False ->
+                        D.map2 Guest playerDataDecoder (D.succeed Nothing)
+
+                    True ->
+                        D.map Host playerDataDecoder
+            )
 
 
 updatePlayerListDecoder : D.Decoder GameMessage
@@ -832,7 +948,7 @@ gameActionDecoder : D.Decoder GameMessage
 gameActionDecoder =
     D.map2 GameAction
         (D.at [ "poem" ] poemDecoder)
-        (D.at [ "playerList" ] (D.list playerDecoder))
+        (D.at [ "otherPlayers" ] (D.list playerDecoder))
 
 
 disconnectionDecoder : D.Decoder GameMessage
