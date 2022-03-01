@@ -840,7 +840,7 @@ viewGame poem model =
                 :: mainColumnStyles
                 ++ [ spacing 10
                    , padding 10
-                   , Font.family [ Font.serif ]
+                   , Font.family [ Font.typeface "Georgia", Font.serif ]
                    ]
             )
             (List.indexedMap
