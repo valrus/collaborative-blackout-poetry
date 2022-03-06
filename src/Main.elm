@@ -393,6 +393,16 @@ sendForRole player =
             Ports.sendAsGuest
 
 
+deductAction : Player -> Player
+deductAction player =
+    case player of
+        Host data ->
+            Host { data | actions = data.actions - 1 }
+
+        Guest data gameId ->
+            Guest { data | actions = data.actions - 1 } gameId
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -482,13 +492,21 @@ update msg model =
         SetTokenState tokenPosition tokenState ->
             case model.gamePhase of
                 InGame poem ->
-                    let
-                        newPoem =
-                            updateTokenState tokenPosition tokenState poem
-                    in
-                    ( { model | gamePhase = InGame newPoem }
-                    , sendForRole model.player (encodeGameMsg <| GameAction newPoem model.otherPlayers)
-                    )
+                    if actionsForPlayer model.player > 0 then
+                        let
+                            newPoem =
+                                updateTokenState tokenPosition tokenState poem
+
+                            newModel =
+                                { model | gamePhase = InGame newPoem, player = deductAction model.player }
+                        in
+                        ( newModel
+                        , sendForRole newModel.player (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
+                        )
+
+                    else
+                        -- TODO: no more actions, show somethin
+                        ( model, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
@@ -566,24 +584,25 @@ resetToIntroButton =
     Input.button (buttonStyles True) { onPress = Just ResetToIntro, label = text "Back" }
 
 
+viewPlayer : Player -> Element Msg
+viewPlayer player =
+    let
+        textAttrs =
+            case player of
+                Host _ ->
+                    [ Font.bold ]
+
+                _ ->
+                    []
+    in
+    el textAttrs (text <| String.join " - " [ nameOfPlayer player, String.fromInt <| actionsForPlayer player ])
+
+
 viewPlayerList : AllPlayersList -> Element Msg
 viewPlayerList playerList =
     column [ spacing 5, alignLeft ]
         (el [] (text "Players")
-            :: List.map
-                (\player ->
-                    let
-                        textAttrs =
-                            case player of
-                                Host _ ->
-                                    [ Font.bold ]
-
-                                _ ->
-                                    []
-                    in
-                    el textAttrs (text <| nameOfPlayer player)
-                )
-                playerList
+            :: List.map viewPlayer playerList
         )
 
 
@@ -731,11 +750,6 @@ viewGuestLobby gamePhase allPlayers =
 viewToken : Int -> Int -> Token -> Element Msg
 viewToken lineIndex tokenIndex token =
     let
-        baseAttributes =
-            [ Events.onClick (SetTokenState ( lineIndex, tokenIndex ) nextTokenState)
-            , pointer
-            ]
-
         ( textOuterAttributes, textAttributes, nextTokenState ) =
             case token.state of
                 Default ->
@@ -761,7 +775,10 @@ viewToken lineIndex tokenIndex token =
         -- https://github.com/mdgriffith/elm-ui/issues/18
         textOuterAttributes
         (el
-            (baseAttributes ++ textAttributes)
+            (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) nextTokenState)
+                :: pointer
+                :: textAttributes
+            )
             (text token.content)
         )
 
