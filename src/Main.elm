@@ -229,7 +229,10 @@ handleGameMessage model gameMsg =
             }
 
         GameAction poem allPlayers ->
-            { model | gamePhase = InGame poem, otherPlayers = getOtherPlayers allPlayers model.player }
+            { model
+                | gamePhase = InGame poem
+                , otherPlayers = getOtherPlayers allPlayers model.player
+            }
 
         Disconnection hostOrPlayerName ->
             case hostOrPlayerName of
@@ -516,11 +519,19 @@ update msg model =
 -- VIEW
 
 
-basePadding =
+sides =
     { top = 0
     , right = 0
     , bottom = 0
     , left = 0
+    }
+
+
+corners =
+    { topLeft = 0
+    , topRight = 0
+    , bottomLeft = 0
+    , bottomRight = 0
     }
 
 
@@ -584,8 +595,8 @@ resetToIntroButton =
     Input.button (buttonStyles True) { onPress = Just ResetToIntro, label = text "Back" }
 
 
-viewPlayer : Player -> Element Msg
-viewPlayer player =
+viewPlayerCard : Player -> Element Msg
+viewPlayerCard player =
     let
         textAttrs =
             case player of
@@ -594,15 +605,55 @@ viewPlayer player =
 
                 _ ->
                     []
+
+        borderColor =
+            Border.color (rgb 0.8 0.8 0.8)
+
+        cellPadding =
+            paddingXY 10 5
     in
-    el textAttrs (text <| String.join " - " [ nameOfPlayer player, String.fromInt <| actionsForPlayer player ])
+    column
+        [ width fill, height fill ]
+        [ el
+            ([ borderColor
+             , Border.width 1
+             , Border.roundEach { corners | topLeft = 5, topRight = 5 }
+             , width fill
+             , height shrink
+             , cellPadding
+             ]
+                ++ textAttrs
+            )
+            (text <| nameOfPlayer player)
+        , row
+            [ width fill
+            , height fill
+            ]
+            [ el
+                [ borderColor
+                , Border.widthEach { sides | left = 1, bottom = 1, right = 1 }
+                , Border.roundEach { corners | bottomLeft = 5 }
+                , cellPadding
+                , width (fillPortion 80)
+                ]
+                (text <| "actions")
+            , el
+                [ borderColor
+                , Border.widthEach { sides | right = 1, bottom = 1 }
+                , Border.roundEach { corners | bottomRight = 5 }
+                , cellPadding
+                , width (fillPortion 20)
+                ]
+                (el [ centerX ] <| text <| String.fromInt <| actionsForPlayer player)
+            ]
+        ]
 
 
 viewPlayerList : AllPlayersList -> Element Msg
 viewPlayerList playerList =
-    column [ spacing 5, alignLeft ]
-        (el [] (text "Players")
-            :: List.map viewPlayer playerList
+    column [ spacing 5, alignLeft, width fill ]
+        (el [ width fill ] (text "Players")
+            :: List.map viewPlayerCard playerList
         )
 
 
@@ -686,8 +737,10 @@ viewLeftSidebar : AllPlayersList -> Element.Attribute Msg
 viewLeftSidebar allPlayers =
     onLeft
         (column
-            [ width (px 100), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
-            [ resetToIntroButton, viewPlayerList allPlayers ]
+            [ width (px 200), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
+            [ resetToIntroButton
+            , viewPlayerList allPlayers
+            ]
         )
 
 
@@ -717,13 +770,17 @@ viewHostOptions textString gameId allPlayers =
                     , spellcheck = False
                     , label =
                         Input.labelAbove
-                            [ centerX ]
-                            (text "Poem starter text")
-                    }
-                , conditionalButton
-                    { isEnabled = isValidPoemString textString
-                    , msg = HostMsg StartGame
-                    , labelText = "Start game"
+                            [ centerX, width fill, paddingEach { sides | bottom = 10 } ]
+                            (row [ spaceEvenly, width fill ]
+                                [ el [ alignLeft ] (text "Poem starter text")
+                                , el [ alignRight ] <|
+                                    conditionalButton
+                                        { isEnabled = isValidPoemString textString
+                                        , msg = HostMsg StartGame
+                                        , labelText = "Start game"
+                                        }
+                                ]
+                            )
                     }
                 ]
             ]
