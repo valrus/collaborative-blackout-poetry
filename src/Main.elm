@@ -212,6 +212,47 @@ getOtherPlayers allPlayers currentPlayer =
     List.filter (\player -> nameOfPlayer player /= nameOfPlayer currentPlayer) allPlayers
 
 
+replenishActions : Player -> Player
+replenishActions player =
+    case player of
+        Host data ->
+            Host { data | actions = actionsPerTurn }
+
+        Guest data gameId ->
+            Guest { data | actions = actionsPerTurn } gameId
+
+
+allActionsDepleted : AllPlayersList -> Bool
+allActionsDepleted =
+    List.all (\player -> actionsForPlayer player == 0)
+
+
+resetActionsIfNecessary : Model -> Poem -> AllPlayersList -> Model
+resetActionsIfNecessary model poem allPlayers =
+    if allActionsDepleted allPlayers then
+        { model
+            | gamePhase = InGame poem
+            , player = replenishActions model.player
+            , otherPlayers = List.map replenishActions <| getOtherPlayers allPlayers model.player
+        }
+
+    else
+        { model
+            | gamePhase = InGame poem
+            , otherPlayers = getOtherPlayers allPlayers model.player
+        }
+
+
+playerMatches : Player -> Player -> Bool
+playerMatches player otherPlayer =
+    nameOfPlayer player == nameOfPlayer otherPlayer
+
+
+selfAndOtherPlayers : Player -> AllPlayersList -> ( Maybe Player, OtherPlayersList )
+selfAndOtherPlayers self allPlayers =
+    List.partition (playerMatches self) allPlayers |> Tuple.mapFirst List.head
+
+
 handleGameMessage : Model -> GameMessage -> Model
 handleGameMessage model gameMsg =
     case gameMsg of
@@ -237,10 +278,23 @@ handleGameMessage model gameMsg =
             }
 
         GameAction poem allPlayers ->
-            { model
-                | gamePhase = InGame poem
-                , otherPlayers = getOtherPlayers allPlayers model.player
-            }
+            case model.player of
+                Host _ ->
+                    resetActionsIfNecessary model poem allPlayers
+
+                Guest _ _ ->
+                    case selfAndOtherPlayers model.player allPlayers of
+                        ( Just self, _ ) ->
+                            { model
+                                | gamePhase = InGame poem
+                                , player = self
+                                , otherPlayers = getOtherPlayers allPlayers model.player
+                            }
+
+                        ( Nothing, _ ) ->
+                            -- a message about a game state not including this player?
+                            -- let's not do anything with that!
+                            model
 
         Disconnection hostOrPlayerName ->
             case hostOrPlayerName of
@@ -477,16 +531,23 @@ update msg model =
             let
                 newModel =
                     handleGameMessage model gameMsg
+
+                allPlayers =
+                    getAllPlayers newModel
             in
             ( newModel
             , case ( newModel.player, gameMsg ) of
                 ( Host _, GuestJoined playerName ) ->
                     -- forward the whole player list out
-                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList (getAllPlayers newModel))
+                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
 
                 ( Host _, Disconnection playerName ) ->
                     -- forward the whole player list out
-                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList (getAllPlayers newModel))
+                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
+
+                ( Host _, GameAction poem allPlayersList ) ->
+                    -- forward the received message
+                    Ports.sendAsHost (encodeGameMsg <| GameAction poem allPlayers)
 
                 ( Host _, _ ) ->
                     -- forward the received message
@@ -508,11 +569,26 @@ update msg model =
                             newPoem =
                                 updateTokenState tokenPosition tokenState poem
 
+                            modelWithActionDeducted =
+                                { model | player = deductAction model.player }
+
                             newModel =
-                                { model | gamePhase = InGame newPoem, player = deductAction model.player }
+                                case model.player of
+                                    Host _ ->
+                                        resetActionsIfNecessary
+                                            modelWithActionDeducted
+                                            newPoem
+                                            (getAllPlayers modelWithActionDeducted)
+
+                                    Guest _ _ ->
+                                        -- guests should never replenish actions themselves but wait
+                                        -- for a message from the host
+                                        modelWithActionDeducted
                         in
                         ( newModel
-                        , sendForRole newModel.player (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
+                        , sendForRole
+                            newModel.player
+                            (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
                         )
 
                     else
@@ -815,35 +891,46 @@ viewGuestLobby gamePhase allPlayers =
             ]
 
 
-viewToken : Int -> Int -> Token -> Element Msg
-viewToken lineIndex tokenIndex token =
+viewToken : GameAction -> Int -> Int -> Token -> Element Msg
+viewToken selectedAction lineIndex tokenIndex token =
     let
-        ( textOuterAttributes, textAttributes, nextTokenState ) =
+        ( textOuterAttributes, textAttributes ) =
             case token.state of
                 Default ->
                     ( []
                     , []
-                    , Circled
                     )
 
                 Circled ->
                     ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ]
                     , [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ]
-                    , Obscured
                     )
 
                 Obscured ->
                     ( []
-                    , [ Font.color (rgb 1.0 1.0 1.0) ]
-                    , Default
+                    , [ Font.color (rgb 0.9 0.9 0.9) ]
                     )
+
+        tokenStateAfterAction =
+            case ( token.state, selectedAction ) of
+                ( Circled, ToggleCircled ) ->
+                    Default
+
+                ( Obscured, ToggleObscured ) ->
+                    Default
+
+                ( _, ToggleCircled ) ->
+                    Circled
+
+                ( _, ToggleObscured ) ->
+                    Obscured
     in
     el
         -- We need an extra wrapper for both outer and inner glow; see
         -- https://github.com/mdgriffith/elm-ui/issues/18
         textOuterAttributes
         (el
-            (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) nextTokenState)
+            (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction)
                 :: pointer
                 :: textAttributes
             )
@@ -851,11 +938,11 @@ viewToken lineIndex tokenIndex token =
         )
 
 
-viewPoemLine : Int -> TextLine -> List (Element Msg)
-viewPoemLine lineIndex line =
+viewPoemLine : GameAction -> Int -> TextLine -> List (Element Msg)
+viewPoemLine gameAction lineIndex line =
     List.intersperse (el [] (text " ")) <|
         List.indexedMap
-            (viewToken lineIndex)
+            (viewToken gameAction lineIndex)
             (Array.toList line)
 
 
@@ -909,7 +996,6 @@ viewRightSidebar selectedAction =
                     baseButtonStyles ++ [ Border.color (rgb 0.8 0.8 0.8) ]
 
                 Input.Focused ->
-                    -- TODO shadow?
                     baseButtonStyles ++ boxShadowStyles
 
                 Input.Selected ->
@@ -962,7 +1048,7 @@ viewGame poem model =
                 (\i line ->
                     paragraph
                         []
-                        (viewPoemLine i line)
+                        (viewPoemLine model.gameAction i line)
                 )
                 (Array.toList poem)
             )
