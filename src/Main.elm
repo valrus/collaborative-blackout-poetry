@@ -89,6 +89,11 @@ type GameMessage
     | Disconnection (Maybe PlayerName)
 
 
+type GameAction
+    = ToggleCircled
+    | ToggleObscured
+
+
 
 -- TODO divide these by host/guest?
 
@@ -116,6 +121,7 @@ type alias Model =
     , player : Player
     , otherPlayers : OtherPlayersList
     , gamePhase : GamePhase
+    , gameAction : GameAction
     , textString : String
     , confirmReset : ConfirmResetFlag
     }
@@ -132,6 +138,7 @@ init gameId =
       , player = startingPlayer
       , otherPlayers = []
       , gamePhase = NotStarted
+      , gameAction = ToggleObscured
       , textString = ""
       , confirmReset = False
       }
@@ -163,6 +170,7 @@ type Msg
     | SetUserName PlayerName
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
+    | SetGameAction GameAction
 
 
 makeToken : String -> Token
@@ -513,6 +521,9 @@ update msg model =
 
                 _ ->
                     ( model, Cmd.none )
+
+        SetGameAction gameAction ->
+            ( { model | gameAction = gameAction }, Cmd.none )
 
 
 
@@ -886,12 +897,42 @@ viewConfirmModal player =
                 ]
 
 
-viewRightSidebar : Element.Attribute Msg
-viewRightSidebar =
+viewRightSidebar : GameAction -> Element.Attribute Msg
+viewRightSidebar selectedAction =
+    let
+        baseButtonStyles =
+            Border.width 2 :: roundedBoxStyles
+
+        actionButtonStyles optionState =
+            case optionState of
+                Input.Idle ->
+                    baseButtonStyles ++ [ Border.color (rgb 0.8 0.8 0.8) ]
+
+                Input.Focused ->
+                    -- TODO shadow?
+                    baseButtonStyles ++ boxShadowStyles
+
+                Input.Selected ->
+                    baseButtonStyles ++ [ Border.color (rgb 0 0 0) ]
+    in
     onRight
         (column
             [ width (px 100), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
-            []
+            [ Input.radioRow
+                [ width fill, spacing 20, paddingXY 0 20 ]
+                { onChange = SetGameAction
+                , selected = Just selectedAction
+                , label = Input.labelAbove [] (text "Actions")
+                , options =
+                    [ Input.optionWith
+                        ToggleObscured
+                        (\optionState -> el (alignLeft :: actionButtonStyles optionState) (text "⬛"))
+                    , Input.optionWith
+                        ToggleCircled
+                        (\optionState -> el (alignLeft :: actionButtonStyles optionState) (text "⭕"))
+                    ]
+                }
+            ]
         )
 
 
@@ -910,7 +951,7 @@ viewGame poem model =
     <|
         Element.textColumn
             (viewLeftSidebar (getAllPlayers model)
-                :: viewRightSidebar
+                :: viewRightSidebar model.gameAction
                 :: mainColumnStyles
                 ++ [ spacing 10
                    , padding 10
