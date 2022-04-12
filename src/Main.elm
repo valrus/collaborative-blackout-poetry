@@ -1,5 +1,6 @@
 module Main exposing (..)
 
+import Animation
 import Array
 import Browser
 import Html exposing (Html)
@@ -8,6 +9,7 @@ import Json.Encode as E
 import Ports
 import State exposing (..)
 import Subscriptions exposing (subscriptions)
+import Time exposing (millisToPosix)
 import View exposing (..)
 
 
@@ -430,12 +432,38 @@ update msg model =
         SetGameAction gameAction ->
             ( { model | gameAction = gameAction }, Cmd.none )
 
+        FlashMessage message gameAction ->
+            let
+                toast =
+                    model.toast
+
+                newStyle =
+                    Animation.interrupt
+                        [ Animation.set [ Animation.display Animation.block ]
+                        , Animation.set [ Animation.opacity 0.8 ]
+                        , Animation.wait (millisToPosix 1000)
+                        , Animation.to [ Animation.opacity 0.0 ]
+                        , Animation.set [ Animation.display Animation.none ]
+                        ]
+                        toast.style
+            in
+            ( { model | toast = { toast | style = newStyle, message = message } }
+            , Cmd.none
+            )
+
+        AnimateToast animationMsg ->
+            let
+                toast =
+                    model.toast
+            in
+            ( { model | toast = { toast | style = Animation.update animationMsg model.toast.style } }, Cmd.none )
+
 
 view : Model -> Html Msg
 view model =
     case model.gamePhase of
         NotStarted ->
-            viewIntro model.player
+            viewIntro model.player model.toast
 
         ShowingHostOptions ->
             viewHostOptions model.textString model.gameId (getAllPlayers model)
@@ -450,4 +478,4 @@ view model =
             viewGame poem model
 
         GameOver ->
-            viewIntro model.player
+            viewIntro model.player model.toast

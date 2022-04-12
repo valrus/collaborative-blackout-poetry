@@ -1,5 +1,6 @@
 module Subscriptions exposing (subscriptions)
 
+import Animation
 import Json.Decode as D
 import Ports
 import State exposing (..)
@@ -100,9 +101,10 @@ gameMessageDecoder =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions model =
     Sub.batch
         [ Ports.connectedAsGuest (ConnectedToHost >> GuestMsg)
         , Ports.receivedMessage (ReceivedGameMessage << D.decodeValue gameMessageDecoder)
         , Ports.disconnect (\_ -> ResetToIntro)
+        , Animation.subscription AnimateToast [ model.toast.style ]
         ]

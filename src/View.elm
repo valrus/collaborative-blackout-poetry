@@ -1,5 +1,6 @@
 module View exposing (..)
 
+import Animation
 import Array
 import Element exposing (..)
 import Element.Background as Background
@@ -183,8 +184,8 @@ isValidGameId =
         >> Maybe.withDefault False
 
 
-viewIntro : Player -> Html Msg
-viewIntro player =
+viewIntro : Player -> Toast -> Html Msg
+viewIntro player toast =
     let
         gameId =
             case player of
@@ -198,7 +199,11 @@ viewIntro player =
         validId =
             isValidGameId gameId
     in
-    layout [ padding 20 ] <|
+    layout
+        [ padding 20
+        , viewToast toast
+        ]
+    <|
         column
             mainColumnStyles
             [ userNameInput <| nameOfPlayer player
@@ -221,6 +226,11 @@ viewIntro player =
                 , onChange = SetHostIdForGuest
                 , placeholder = Just (Input.placeholder [] (text "Game ID from host"))
                 , text = Maybe.withDefault "" gameId
+                }
+            , Input.button
+                (centerX :: buttonStyles True)
+                { onPress = Just <| FlashMessage "toast!" ToggleCircled
+                , label = text "Toast!"
                 }
             ]
 
@@ -399,11 +409,19 @@ viewConfirmModal player =
                 ]
 
 
-viewRightSidebar : GameAction -> Element.Attribute Msg
-viewRightSidebar selectedAction =
+viewRightSidebar : GameAction -> Int -> Element.Attribute Msg
+viewRightSidebar selectedAction playerActionCount =
     let
+        hasActions =
+            playerActionCount > 0
+
         baseButtonStyles =
-            Border.width 2 :: roundedBoxStyles
+            case hasActions of
+                False ->
+                    alpha 0.5 :: Border.width 2 :: roundedBoxStyles
+
+                True ->
+                    Border.width 2 :: roundedBoxStyles
 
         actionButtonStyles optionState =
             case optionState of
@@ -421,7 +439,12 @@ viewRightSidebar selectedAction =
             [ width (px 100), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
             [ Input.radioRow
                 [ width fill, spacing 20, paddingXY 0 20 ]
-                { onChange = SetGameAction
+                { onChange =
+                    if hasActions then
+                        SetGameAction
+
+                    else
+                        FlashMessage "Out of actions!"
                 , selected = Just selectedAction
                 , label = Input.labelAbove [] (text "Actions")
                 , options =
@@ -437,6 +460,47 @@ viewRightSidebar selectedAction =
         )
 
 
+animateElement : Animation.State -> List (Attribute Msg)
+animateElement style =
+    List.map htmlAttribute (Animation.render style)
+
+
+toastContainerStyles : List (Attribute Msg)
+toastContainerStyles =
+    [ centerX
+    , alignTop
+    , padding 60
+    , width fill
+    ]
+
+
+toastStyles : List (Attribute Msg)
+toastStyles =
+    roundedBoxStyles
+        ++ [ centerX
+           , alignTop
+           , Background.color (rgb 0.1 0.1 0.1)
+           , Font.color (rgb 1 1 1)
+           , width (fill |> maximum 500)
+           , padding 20
+           ]
+
+
+viewToast : Toast -> Attribute Msg
+viewToast toast =
+    inFront <|
+        column
+            toastContainerStyles
+            [ el
+                (List.concat
+                    [ animateElement toast.style
+                    , toastStyles
+                    ]
+                )
+                (paragraph [] [ text toast.message ])
+            ]
+
+
 viewGame : Poem -> Model -> Html Msg
 viewGame poem model =
     layout
@@ -446,13 +510,13 @@ viewGame poem model =
                     [ viewConfirmModal model.player ]
 
                 else
-                    []
+                    [ viewToast model.toast ]
                )
         )
     <|
         Element.textColumn
             (viewLeftSidebar (getAllPlayers model)
-                :: viewRightSidebar model.gameAction
+                :: viewRightSidebar model.gameAction (actionCountForPlayer model.player)
                 :: mainColumnStyles
                 ++ [ spacing 10
                    , padding 10

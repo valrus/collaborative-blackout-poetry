@@ -1,5 +1,6 @@
 module State exposing (..)
 
+import Animation
 import Array
 import Json.Decode as D
 import Ports
@@ -26,6 +27,8 @@ type Msg
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
     | SetGameAction GameAction
+    | FlashMessage String GameAction
+    | AnimateToast Animation.Msg
 
 
 
@@ -127,6 +130,12 @@ type alias ConfirmResetFlag =
     Bool
 
 
+type alias Toast =
+    { message : String
+    , style : Animation.State
+    }
+
+
 type alias Model =
     { gameId : GameId
     , player : Player
@@ -135,6 +144,7 @@ type alias Model =
     , gameAction : GameAction
     , textString : String
     , confirmReset : ConfirmResetFlag
+    , toast : Toast
     }
 
 
@@ -214,6 +224,14 @@ init gameId =
       , gameAction = ToggleObscured
       , textString = ""
       , confirmReset = False
+      , toast =
+            { message = ""
+            , style =
+                Animation.style
+                    [ Animation.opacity 1.0
+                    , Animation.display Animation.none
+                    ]
+            }
       }
     , Ports.init gameId
     )
