@@ -209,7 +209,10 @@ viewIntro player toast =
             [ userNameInput <| nameOfPlayer player
             , conditionalButton
                 { msg = HostMsg ShowHostOptions
-                , isEnabled = not (String.isEmpty <| nameOfPlayer player)
+                , isEnabled =
+                    (&&)
+                        (not (String.isEmpty <| nameOfPlayer player))
+                        (String.isEmpty <| Maybe.withDefault "" gameId)
                 , labelText = "Host game"
                 }
             , Input.text
@@ -245,9 +248,14 @@ viewLeftSidebar allPlayers =
     onLeft
         (column
             [ width (px 200), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
-            [ resetToIntroButton
-            , viewPlayerList allPlayers
-            ]
+         <|
+            [ resetToIntroButton ]
+                ++ (if List.isEmpty allPlayers then
+                        []
+
+                    else
+                        [ viewPlayerList allPlayers ]
+                   )
         )
 
 
@@ -372,6 +380,45 @@ viewPoemLine playerHasActions gameAction lineIndex line =
         List.indexedMap
             (viewToken playerHasActions gameAction lineIndex)
             (Array.toList line)
+
+
+viewEndToken : Token -> Element Msg
+viewEndToken token =
+    let
+        ( textOuterAttributes, textAttributes ) =
+            case token.state of
+                Default ->
+                    ( []
+                    , []
+                    )
+
+                Circled ->
+                    ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ]
+                    , [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ]
+                    )
+
+                Obscured ->
+                    ( []
+                    , [ transparent True ]
+                    )
+    in
+    el
+        -- We need an extra wrapper for both outer and inner glow; see
+        -- https://github.com/mdgriffith/elm-ui/issues/18
+        textOuterAttributes
+        (el
+            textAttributes
+            (text token.content)
+        )
+
+
+viewEndPoemLine : TextLine -> Element Msg
+viewEndPoemLine line =
+    paragraph [] <|
+        List.intersperse (el [] (text " ")) <|
+            List.map
+                viewEndToken
+                (Array.toList line)
 
 
 boxShadowStyles : List (Element.Attribute Msg)
@@ -518,6 +565,14 @@ viewToast toast =
             ]
 
 
+poemStyles : List (Attribute Msg)
+poemStyles =
+    [ spacing 10
+    , padding 10
+    , Font.family [ Font.typeface "Georgia", Font.serif ]
+    ]
+
+
 viewGame : Poem -> Model -> Html Msg
 viewGame poem model =
     let
@@ -539,10 +594,7 @@ viewGame poem model =
             (viewLeftSidebar (getAllPlayers model)
                 :: viewRightSidebar model.gameAction playerHasActions
                 :: mainColumnStyles
-                ++ [ spacing 10
-                   , padding 10
-                   , Font.family [ Font.typeface "Georgia", Font.serif ]
-                   ]
+                ++ poemStyles
             )
             (List.indexedMap
                 (\i line ->
@@ -557,3 +609,18 @@ viewGame poem model =
 getAllPlayers : Model -> AllPlayersList
 getAllPlayers model =
     model.player :: model.otherPlayers
+
+
+viewGameEnd : Poem -> Html Msg
+viewGameEnd poem =
+    layout
+        []
+    <|
+        Element.textColumn
+            (viewLeftSidebar []
+                :: mainColumnStyles
+                ++ poemStyles
+            )
+            (List.map viewEndPoemLine
+                (Array.toList poem)
+            )

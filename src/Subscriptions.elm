@@ -85,6 +85,12 @@ gameActionDecoder =
         (D.at [ "otherPlayers" ] (D.list playerDecoder))
 
 
+gameEndDecoder : D.Decoder GameMessage
+gameEndDecoder =
+    D.map GameEnd
+        (D.at [ "endPoem" ] poemDecoder)
+
+
 disconnectionDecoder : D.Decoder GameMessage
 disconnectionDecoder =
     D.map Disconnection <| D.field "disconnection" (D.maybe D.string)
@@ -96,6 +102,7 @@ gameMessageDecoder =
         [ guestJoinedDecoder -- PlayerName
         , updatePlayerListDecoder -- PlayerList
         , gameActionDecoder -- Poem PlayerList
+        , gameEndDecoder -- Poem
         , disconnectionDecoder -- Maybe PlayerName
         ]
 

@@ -30,6 +30,7 @@ type Msg
     | SetGameAction GameAction
     | FlashMessage String
     | AnimateToast Animation.Msg
+    | EndGame
 
 
 
@@ -59,6 +60,12 @@ type alias TextLine =
 
 type alias Poem =
     Array.Array TextLine
+
+
+type TurnState
+    = AllActionsDepleted
+    | AllPlayersPassed
+    | Ongoing
 
 
 actionsPerTurn : PlayerActions
@@ -101,6 +108,7 @@ type GameMessage
     = GuestJoined PlayerName
     | UpdatePlayerList AllPlayersList
     | GameAction Poem AllPlayersList
+    | GameEnd Poem
     | Disconnection (Maybe PlayerName)
 
 
@@ -119,7 +127,7 @@ type GamePhase
     | ConnectingAsGuest
     | ConnectedAsGuest
     | InGame Poem
-    | GameOver
+    | GameOver Poem
 
 
 type Player

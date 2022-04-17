@@ -49,25 +49,36 @@ replenishActions player =
             Guest { data | actions = actionsPerTurn } gameId
 
 
-allActionsDepleted : AllPlayersList -> Bool
-allActionsDepleted =
-    List.all (\player -> actionCountForPlayer player == 0)
+turnState : AllPlayersList -> TurnState
+turnState allPlayers =
+    if List.all (\player -> actionsForPlayer player == Passed) allPlayers then
+        AllPlayersPassed
 
-
-resetActionsIfNecessary : Model -> Poem -> AllPlayersList -> Model
-resetActionsIfNecessary model poem allPlayers =
-    if allActionsDepleted allPlayers then
-        { model
-            | gamePhase = InGame poem
-            , player = replenishActions model.player
-            , otherPlayers = List.map replenishActions <| getOtherPlayers allPlayers model.player
-        }
+    else if List.all (\player -> actionCountForPlayer player == 0) allPlayers then
+        AllActionsDepleted
 
     else
-        { model
-            | gamePhase = InGame poem
-            , otherPlayers = getOtherPlayers allPlayers model.player
-        }
+        Ongoing
+
+
+updateModelFromGameActions : Model -> Poem -> AllPlayersList -> Model
+updateModelFromGameActions model poem newPlayersList =
+    case turnState newPlayersList of
+        AllPlayersPassed ->
+            { model | gamePhase = GameOver poem }
+
+        AllActionsDepleted ->
+            { model
+                | gamePhase = InGame poem
+                , player = replenishActions model.player
+                , otherPlayers = List.map replenishActions <| getOtherPlayers newPlayersList model.player
+            }
+
+        _ ->
+            { model
+                | gamePhase = InGame poem
+                , otherPlayers = getOtherPlayers newPlayersList model.player
+            }
 
 
 playerMatches : Player -> Player -> Bool
@@ -111,7 +122,7 @@ handleGameMessage model gameMsg =
         GameAction poem allPlayers ->
             case model.player of
                 Host _ ->
-                    resetActionsIfNecessary model poem allPlayers
+                    updateModelFromGameActions model poem allPlayers
 
                 Guest _ _ ->
                     case selfAndOtherPlayers model.player allPlayers of
@@ -127,10 +138,18 @@ handleGameMessage model gameMsg =
                             -- let's not do anything with that!
                             model
 
+        GameEnd poem ->
+            { model | gamePhase = GameOver poem }
+
         Disconnection hostOrPlayerName ->
             case hostOrPlayerName of
                 Just playerName ->
-                    { model | otherPlayers = List.filter (\player -> nameOfPlayer player /= playerName) model.otherPlayers }
+                    { model
+                        | otherPlayers =
+                            List.filter
+                                (\player -> nameOfPlayer player /= playerName)
+                                model.otherPlayers
+                    }
 
                 Nothing ->
                     { model | gamePhase = NotStarted, player = startingPlayer }
@@ -202,6 +221,11 @@ encodeGameMsg gameMsg =
                 , ( "otherPlayers"
                   , E.list encodePlayer otherPlayers
                   )
+                ]
+
+        GameEnd poem ->
+            E.object
+                [ ( "endPoem", encodePoem poem )
                 ]
 
         Disconnection hostOrPlayerName ->
@@ -299,6 +323,25 @@ sendForRole player =
             Ports.sendAsGuest
 
 
+flashMessageInModel : Model -> String -> Model
+flashMessageInModel model message =
+    let
+        toast =
+            model.toast
+
+        newStyle =
+            Animation.interrupt
+                [ Animation.set [ Animation.display Animation.flex ]
+                , Animation.set [ Animation.opacity 0.8 ]
+                , Animation.wait (millisToPosix 1000)
+                , Animation.to [ Animation.opacity 0.0 ]
+                , Animation.set [ Animation.display Animation.none ]
+                ]
+                toast.style
+    in
+    { model | toast = { toast | style = newStyle, message = message } }
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -354,8 +397,7 @@ update msg model =
 
         -- game state changes
         ReceivedGameMessage (Err err) ->
-            -- TODO: handle somehow
-            ( model, Cmd.none )
+            ( flashMessageInModel model "Invalid game message received", Cmd.none )
 
         ReceivedGameMessage (Ok gameMsg) ->
             -- TODO: maybe should only handle this if user is in game or lobby
@@ -365,32 +407,39 @@ update msg model =
 
                 allPlayers =
                     getAllPlayers newModel
+
+                cmd =
+                    case ( newModel.player, gameMsg ) of
+                        ( Host _, GuestJoined playerName ) ->
+                            -- forward the whole player list out
+                            Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
+
+                        ( Host _, Disconnection playerName ) ->
+                            -- forward the whole player list out
+                            Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
+
+                        ( Host _, GameAction poem allPlayersList ) ->
+                            case newModel.gamePhase of
+                                GameOver endPoem ->
+                                    -- forward the received message
+                                    Ports.sendAsHost (encodeGameMsg <| GameEnd endPoem)
+
+                                _ ->
+                                    -- forward the received message
+                                    Ports.sendAsHost (encodeGameMsg <| GameAction poem allPlayers)
+
+                        ( Host _, _ ) ->
+                            -- forward the received message
+                            Ports.sendAsHost (encodeGameMsg gameMsg)
+
+                        ( Guest _ _, Disconnection _ ) ->
+                            -- disconnection from host, reset
+                            Ports.reset Nothing
+
+                        ( Guest _ _, _ ) ->
+                            Cmd.none
             in
-            ( newModel
-            , case ( newModel.player, gameMsg ) of
-                ( Host _, GuestJoined playerName ) ->
-                    -- forward the whole player list out
-                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
-
-                ( Host _, Disconnection playerName ) ->
-                    -- forward the whole player list out
-                    Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
-
-                ( Host _, GameAction poem allPlayersList ) ->
-                    -- forward the received message
-                    Ports.sendAsHost (encodeGameMsg <| GameAction poem allPlayers)
-
-                ( Host _, _ ) ->
-                    -- forward the received message
-                    Ports.sendAsHost (encodeGameMsg gameMsg)
-
-                ( Guest _ _, Disconnection _ ) ->
-                    -- disconnection from host, reset
-                    Ports.reset Nothing
-
-                ( Guest _ _, _ ) ->
-                    Cmd.none
-            )
+            ( newModel, cmd )
 
         SetTokenState tokenPosition tokenState ->
             case model.gamePhase of
@@ -405,7 +454,7 @@ update msg model =
                         newModel =
                             case model.player of
                                 Host _ ->
-                                    resetActionsIfNecessary
+                                    updateModelFromGameActions
                                         modelWithActionDeducted
                                         newPoem
                                         (getAllPlayers modelWithActionDeducted)
@@ -436,11 +485,32 @@ update msg model =
                                 Guest data gameId ->
                                     Guest { data | actions = Passed } gameId
 
-                        newModel =
+                        modelWithPlayerPassed =
                             { model | player = newPlayer }
+
+                        newModel =
+                            case model.player of
+                                Host _ ->
+                                    updateModelFromGameActions
+                                        modelWithPlayerPassed
+                                        poem
+                                        (getAllPlayers modelWithPlayerPassed)
+
+                                Guest _ _ ->
+                                    -- guests should never end the game themselves
+                                    -- for a message from the host
+                                    modelWithPlayerPassed
+
+                        cmdValue =
+                            case newModel.gamePhase of
+                                GameOver endPoem ->
+                                    encodeGameMsg (GameEnd endPoem)
+
+                                _ ->
+                                    encodeGameMsg (GameAction poem (getAllPlayers newModel))
                     in
                     ( newModel
-                    , sendForRole newPlayer (encodeGameMsg <| GameAction poem (getAllPlayers newModel))
+                    , sendForRole newPlayer cmdValue
                     )
 
                 _ ->
@@ -450,21 +520,7 @@ update msg model =
             ( { model | gameAction = gameAction }, Cmd.none )
 
         FlashMessage message ->
-            let
-                toast =
-                    model.toast
-
-                newStyle =
-                    Animation.interrupt
-                        [ Animation.set [ Animation.display Animation.flex ]
-                        , Animation.set [ Animation.opacity 0.8 ]
-                        , Animation.wait (millisToPosix 1000)
-                        , Animation.to [ Animation.opacity 0.0 ]
-                        , Animation.set [ Animation.display Animation.none ]
-                        ]
-                        toast.style
-            in
-            ( { model | toast = { toast | style = newStyle, message = message } }
+            ( flashMessageInModel model message
             , Cmd.none
             )
 
@@ -476,6 +532,16 @@ update msg model =
             ( { model | toast = { toast | style = Animation.update animationMsg model.toast.style } }
             , Cmd.none
             )
+
+        EndGame ->
+            case model.gamePhase of
+                InGame poem ->
+                    ( { model | gamePhase = GameOver poem }
+                    , sendForRole model.player (encodeGameMsg <| GameEnd poem)
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
 
 
 view : Model -> Html Msg
@@ -496,5 +562,5 @@ view model =
         InGame poem ->
             viewGame poem model
 
-        GameOver ->
-            viewIntro model.player model.toast
+        GameOver poem ->
+            viewGameEnd poem
