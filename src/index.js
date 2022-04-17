@@ -71,9 +71,11 @@ app.ports.connectToHost.subscribe((hostId) => {
                 app.hostConnection.close();
                 initPeer(null);
             }, 500);
+            window.location.reload();
         } else {
             // if playerName is blank, the host disconnected. no need to tell anyone, just reset
             initPeer(null);
+            window.location.reload();
         }
     })
 })
@@ -104,6 +106,7 @@ app.ports.startHosting.subscribe(() => {
             connection.send({"disconnection": null});
         });
         initPeer(null);
+        window.location.reload();
     })
 
     // TODO: send error back to elm
