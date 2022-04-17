@@ -311,8 +311,8 @@ viewGuestLobby gamePhase allPlayers =
             ]
 
 
-viewToken : GameAction -> Int -> Int -> Token -> Element Msg
-viewToken selectedAction lineIndex tokenIndex token =
+viewToken : Bool -> GameAction -> Int -> Int -> Token -> Element Msg
+viewToken playerHasActions selectedAction lineIndex tokenIndex token =
     let
         ( textOuterAttributes, textAttributes ) =
             case token.state of
@@ -344,13 +344,21 @@ viewToken selectedAction lineIndex tokenIndex token =
 
                 ( _, ToggleObscured ) ->
                     Obscured
+
+        clickMsg =
+            case playerHasActions of
+                True ->
+                    SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction
+
+                False ->
+                    FlashMessage "Out of actions!"
     in
     el
         -- We need an extra wrapper for both outer and inner glow; see
         -- https://github.com/mdgriffith/elm-ui/issues/18
         textOuterAttributes
         (el
-            (Events.onClick (SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction)
+            (Events.onClick clickMsg
                 :: pointer
                 :: textAttributes
             )
@@ -358,11 +366,11 @@ viewToken selectedAction lineIndex tokenIndex token =
         )
 
 
-viewPoemLine : GameAction -> Int -> TextLine -> List (Element Msg)
-viewPoemLine gameAction lineIndex line =
+viewPoemLine : Bool -> GameAction -> Int -> TextLine -> List (Element Msg)
+viewPoemLine playerHasActions gameAction lineIndex line =
     List.intersperse (el [] (text " ")) <|
         List.indexedMap
-            (viewToken gameAction lineIndex)
+            (viewToken playerHasActions gameAction lineIndex)
             (Array.toList line)
 
 
@@ -409,12 +417,9 @@ flashMessageOnChange message gameAction =
     FlashMessage message
 
 
-viewRightSidebar : GameAction -> Int -> Element.Attribute Msg
-viewRightSidebar selectedAction playerActionCount =
+viewRightSidebar : GameAction -> Bool -> Element.Attribute Msg
+viewRightSidebar selectedAction hasActions =
     let
-        hasActions =
-            playerActionCount > 0
-
         baseButtonStyles =
             case hasActions of
                 False ->
@@ -515,6 +520,10 @@ viewToast toast =
 
 viewGame : Poem -> Model -> Html Msg
 viewGame poem model =
+    let
+        playerHasActions =
+            actionCountForPlayer model.player > 0
+    in
     layout
         ([ padding 20
          ]
@@ -528,7 +537,7 @@ viewGame poem model =
     <|
         Element.textColumn
             (viewLeftSidebar (getAllPlayers model)
-                :: viewRightSidebar model.gameAction (actionCountForPlayer model.player)
+                :: viewRightSidebar model.gameAction playerHasActions
                 :: mainColumnStyles
                 ++ [ spacing 10
                    , padding 10
@@ -539,7 +548,7 @@ viewGame poem model =
                 (\i line ->
                     paragraph
                         []
-                        (viewPoemLine model.gameAction i line)
+                        (viewPoemLine playerHasActions model.gameAction i line)
                 )
                 (Array.toList poem)
             )

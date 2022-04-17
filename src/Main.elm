@@ -395,36 +395,31 @@ update msg model =
         SetTokenState tokenPosition tokenState ->
             case model.gamePhase of
                 InGame poem ->
-                    if actionCountForPlayer model.player > 0 then
-                        let
-                            newPoem =
-                                updateTokenState tokenPosition tokenState poem
+                    let
+                        newPoem =
+                            updateTokenState tokenPosition tokenState poem
 
-                            modelWithActionDeducted =
-                                { model | player = deductAction model.player }
+                        modelWithActionDeducted =
+                            { model | player = deductAction model.player }
 
-                            newModel =
-                                case model.player of
-                                    Host _ ->
-                                        resetActionsIfNecessary
-                                            modelWithActionDeducted
-                                            newPoem
-                                            (getAllPlayers modelWithActionDeducted)
-
-                                    Guest _ _ ->
-                                        -- guests should never replenish actions themselves but wait
-                                        -- for a message from the host
+                        newModel =
+                            case model.player of
+                                Host _ ->
+                                    resetActionsIfNecessary
                                         modelWithActionDeducted
-                        in
-                        ( newModel
-                        , sendForRole
-                            newModel.player
-                            (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
-                        )
+                                        newPoem
+                                        (getAllPlayers modelWithActionDeducted)
 
-                    else
-                        -- TODO: no more actions, show somethin
-                        ( model, Cmd.none )
+                                Guest _ _ ->
+                                    -- guests should never replenish actions themselves but wait
+                                    -- for a message from the host
+                                    modelWithActionDeducted
+                    in
+                    ( newModel
+                    , sendForRole
+                        newModel.player
+                        (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
+                    )
 
                 _ ->
                     ( model, Cmd.none )
