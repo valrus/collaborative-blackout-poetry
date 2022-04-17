@@ -27,7 +27,7 @@ type Msg
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
     | SetGameAction GameAction
-    | FlashMessage String GameAction
+    | FlashMessage String
     | AnimateToast Animation.Msg
 
 

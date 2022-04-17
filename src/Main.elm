@@ -432,7 +432,7 @@ update msg model =
         SetGameAction gameAction ->
             ( { model | gameAction = gameAction }, Cmd.none )
 
-        FlashMessage message gameAction ->
+        FlashMessage message ->
             let
                 toast =
                     model.toast

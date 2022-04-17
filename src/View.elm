@@ -227,11 +227,6 @@ viewIntro player toast =
                 , placeholder = Just (Input.placeholder [] (text "Game ID from host"))
                 , text = Maybe.withDefault "" gameId
                 }
-            , Input.button
-                (centerX :: buttonStyles True)
-                { onPress = Just <| FlashMessage "toast!" ToggleCircled
-                , label = text "Toast!"
-                }
             ]
 
 
@@ -409,6 +404,11 @@ viewConfirmModal player =
                 ]
 
 
+flashMessageOnChange : String -> GameAction -> Msg
+flashMessageOnChange message gameAction =
+    FlashMessage message
+
+
 viewRightSidebar : GameAction -> Int -> Element.Attribute Msg
 viewRightSidebar selectedAction playerActionCount =
     let
@@ -444,7 +444,7 @@ viewRightSidebar selectedAction playerActionCount =
                         SetGameAction
 
                     else
-                        FlashMessage "Out of actions!"
+                        flashMessageOnChange "Out of actions!"
                 , selected = Just selectedAction
                 , label = Input.labelAbove [] (text "Actions")
                 , options =
