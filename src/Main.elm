@@ -429,6 +429,28 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        PassTurn ->
+            case model.gamePhase of
+                InGame poem ->
+                    let
+                        newPlayer =
+                            case model.player of
+                                Host data ->
+                                    Host { data | actions = Passed }
+
+                                Guest data gameId ->
+                                    Guest { data | actions = Passed } gameId
+
+                        newModel =
+                            { model | player = newPlayer }
+                    in
+                    ( newModel
+                    , sendForRole newPlayer (encodeGameMsg <| GameAction poem (getAllPlayers newModel))
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
         SetGameAction gameAction ->
             ( { model | gameAction = gameAction }, Cmd.none )
 
@@ -456,7 +478,9 @@ update msg model =
                 toast =
                     model.toast
             in
-            ( { model | toast = { toast | style = Animation.update animationMsg model.toast.style } }, Cmd.none )
+            ( { model | toast = { toast | style = Animation.update animationMsg model.toast.style } }
+            , Cmd.none
+            )
 
 
 view : Model -> Html Msg

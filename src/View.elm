@@ -436,26 +436,42 @@ viewRightSidebar selectedAction playerActionCount =
     in
     onRight
         (column
-            [ width (px 100), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
-            [ Input.radioRow
-                [ width fill, spacing 20, paddingXY 0 20 ]
-                { onChange =
-                    if hasActions then
-                        SetGameAction
+            [ padding 20 ]
+            [ el [ Font.family [ Font.sansSerif ] ] (text "Actions")
+            , row
+                [ width (px 200), spacing 10 ]
+                [ Input.radioRow
+                    [ width shrink, spacing 10, paddingXY 0 20 ]
+                    { onChange =
+                        if hasActions then
+                            SetGameAction
 
-                    else
-                        flashMessageOnChange "Out of actions!"
-                , selected = Just selectedAction
-                , label = Input.labelAbove [] (text "Actions")
-                , options =
-                    [ Input.optionWith
-                        ToggleObscured
-                        (\optionState -> el (alignLeft :: actionButtonStyles optionState) (text "⬛"))
-                    , Input.optionWith
-                        ToggleCircled
-                        (\optionState -> el (alignLeft :: actionButtonStyles optionState) (text "⭕"))
-                    ]
-                }
+                        else
+                            flashMessageOnChange "Out of actions!"
+                    , selected = Just selectedAction
+                    , label = Input.labelHidden "Word modifiers"
+                    , options =
+                        [ Input.optionWith
+                            ToggleObscured
+                            (\optionState -> el (alignLeft :: actionButtonStyles optionState) (text "⬛"))
+                        , Input.optionWith
+                            ToggleCircled
+                            (\optionState -> el (alignLeft :: actionButtonStyles optionState) (text "⭕"))
+                        ]
+                    }
+                , el
+                    [ paddingXY 0 20 ]
+                    (Input.button (actionButtonStyles Input.Idle)
+                        { onPress =
+                            if hasActions then
+                                Just PassTurn
+
+                            else
+                                Nothing
+                        , label = text "❌"
+                        }
+                    )
+                ]
             ]
         )
 
@@ -490,13 +506,9 @@ viewToast : Toast -> Attribute Msg
 viewToast toast =
     inFront <|
         column
-            toastContainerStyles
+            (animateElement toast.style ++ toastContainerStyles)
             [ el
-                (List.concat
-                    [ animateElement toast.style
-                    , toastStyles
-                    ]
-                )
+                toastStyles
                 (paragraph [] [ text toast.message ])
             ]
 

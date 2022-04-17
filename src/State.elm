@@ -26,6 +26,7 @@ type Msg
     | SetUserName PlayerName
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
+    | PassTurn
     | SetGameAction GameAction
     | FlashMessage String
     | AnimateToast Animation.Msg
