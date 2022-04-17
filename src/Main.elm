@@ -456,7 +456,7 @@ update msg model =
 
                 newStyle =
                     Animation.interrupt
-                        [ Animation.set [ Animation.display Animation.block ]
+                        [ Animation.set [ Animation.display Animation.flex ]
                         , Animation.set [ Animation.opacity 0.8 ]
                         , Animation.wait (millisToPosix 1000)
                         , Animation.to [ Animation.opacity 0.0 ]

@@ -490,7 +490,7 @@ toastContainerStyles : List (Attribute Msg)
 toastContainerStyles =
     [ centerX
     , alignTop
-    , padding 60
+    , padding 40
     , width fill
     ]
 
