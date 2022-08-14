@@ -10,7 +10,9 @@ import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
+import Html.Attributes as HtmlAttributes
 import State exposing (..)
+import Tuple
 
 
 sides =
@@ -320,8 +322,8 @@ viewGuestLobby gamePhase allPlayers =
             ]
 
 
-viewToken : Bool -> GameAction -> Int -> Int -> Token -> Element Msg
-viewToken playerHasActions selectedAction lineIndex tokenIndex token =
+viewToken : Model -> Int -> Int -> Token -> Element Msg
+viewToken model lineIndex tokenIndex token =
     let
         subToken =
             NE.getFirst token
@@ -344,7 +346,7 @@ viewToken playerHasActions selectedAction lineIndex tokenIndex token =
                     )
 
         tokenStateAfterAction =
-            case ( subToken.state, selectedAction ) of
+            case ( subToken.state, model.gameAction ) of
                 ( Circled, ToggleCircled ) ->
                     Default
 
@@ -358,7 +360,7 @@ viewToken playerHasActions selectedAction lineIndex tokenIndex token =
                     Obscured
 
         clickMsg =
-            case playerHasActions of
+            case playerHasActions model of
                 True ->
                     SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction
 
@@ -383,12 +385,11 @@ viewToken playerHasActions selectedAction lineIndex tokenIndex token =
         )
 
 
-viewPoemLine : Bool -> GameAction -> Int -> TextLine -> List (Element Msg)
-viewPoemLine playerHasActions gameAction lineIndex line =
-    List.intersperse (el [] (text " ")) <|
-        List.indexedMap
-            (viewToken playerHasActions gameAction lineIndex)
-            (Array.toList line)
+viewPoemLine : Model -> Int -> TextLine -> Array.Array (Element Msg)
+viewPoemLine model lineIndex line =
+    Array.indexedMap
+        (viewToken model lineIndex)
+        line
 
 
 viewEndToken : Token -> Element Msg
@@ -585,11 +586,86 @@ poemStyles =
     ]
 
 
+playerHasActions : Model -> Bool
+playerHasActions model =
+    actionCountForPlayer model.player > 0
+
+
+viewPoem : Model -> Poem -> Array.Array (Array.Array (Element Msg))
+viewPoem model poem =
+    Array.indexedMap
+        (\i line -> viewPoemLine model i line)
+        poem
+
+
+zoomedTokenElement : Token -> Element Msg
+zoomedTokenElement token =
+    let
+        subToken =
+            NE.getFirst token
+    in
+    el
+        [ Background.color (rgb 1 1 1)
+        , padding 16
+        , Font.size 40
+        , centerX
+        , moveUp 23
+        , Border.rounded 4
+        , Border.width 1
+        , Border.color (rgb 0.5 0.5 0.5)
+        , htmlAttribute <| HtmlAttributes.style "z-index" "50"
+        ]
+        (text subToken.content)
+
+
+tokenWithZoom : Maybe TokenSpec -> Int -> ( Int, Element Msg ) -> Element Msg
+tokenWithZoom maybeTokenSpec lineIndex indexedTokenElement =
+    let
+        ( tokenIndex, tokenElement ) =
+            indexedTokenElement
+    in
+    case maybeTokenSpec of
+        Nothing ->
+            tokenElement
+
+        Just { token, position } ->
+            let
+                ( zoomedLine, zoomedToken ) =
+                    position
+            in
+            if zoomedLine == lineIndex && zoomedToken == tokenIndex then
+                -- Need to add a z-index because the inFront won't be in front of other tokens
+                -- https://github.com/mdgriffith/elm-ui/issues/242
+                el
+                    [ inFront (zoomedTokenElement token)
+                    ]
+                    tokenElement
+
+            else
+                tokenElement
+
+
+flattenPoemElements : Maybe TokenSpec -> Array.Array (Array.Array (Element Msg)) -> List (Element Msg)
+flattenPoemElements zoomedTokenSpec =
+    Array.toList
+        >> List.indexedMap
+            (\lineIndex line ->
+                paragraph
+                    []
+                    (List.intersperse
+                        (el [] (text " "))
+                        (Array.toIndexedList line
+                            |> List.map (tokenWithZoom zoomedTokenSpec lineIndex)
+                        )
+                    )
+            )
+
+
 viewGame : Poem -> Model -> Html Msg
 viewGame poem model =
     let
-        playerHasActions =
-            actionCountForPlayer model.player > 0
+        poemElements =
+            viewPoem model poem
     in
     layout
         ([ padding 20
@@ -604,18 +680,11 @@ viewGame poem model =
     <|
         Element.textColumn
             (viewLeftSidebar (getAllPlayers model)
-                :: viewRightSidebar model.gameAction playerHasActions
+                :: viewRightSidebar model.gameAction (playerHasActions model)
                 :: mainColumnStyles
                 ++ poemStyles
             )
-            (List.indexedMap
-                (\i line ->
-                    paragraph
-                        []
-                        (viewPoemLine playerHasActions model.gameAction i line)
-                )
-                (Array.toList poem)
-            )
+            (flattenPoemElements model.zoomedToken poemElements)
 
 
 getAllPlayers : Model -> AllPlayersList

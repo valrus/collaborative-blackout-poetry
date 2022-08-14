@@ -479,7 +479,7 @@ update msg model =
                                     -- for a message from the host
                                     modelWithActionDeducted
                     in
-                    ( newModel
+                    ( { newModel | longPressTimerId = Nothing }
                     , sendForRole
                         newModel.player
                         (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
@@ -491,7 +491,7 @@ update msg model =
         StartLongPressTimer tokenSpec ->
             let
                 sleep =
-                    Process.sleep 1500
+                    Process.sleep 1000
 
                 -- |> Task.andThen (always <| Task.succeed (HandleLongPress tokenSpec))
                 spawn =
@@ -508,12 +508,19 @@ update msg model =
             )
 
         SetLongPressTimerId timerId ->
-            ( { model | longPressTimerId = Just timerId }, Cmd.none )
-
-        HandleLongPress tokenSpec ->
-            ( flashMessageInModel model "Long press happened"
+            ( { model | longPressTimerId = Just timerId }
             , Cmd.none
             )
+
+        HandleLongPress tokenSpec ->
+            case model.longPressTimerId of
+                Just _ ->
+                    ( { model | zoomedToken = Just tokenSpec, longPressTimerId = Nothing }
+                    , Cmd.none
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         CancelLongPressTimer ->
             ( { model | longPressTimerId = Nothing }, Cmd.none )

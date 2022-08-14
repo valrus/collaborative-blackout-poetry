@@ -171,6 +171,7 @@ type alias Model =
     , confirmReset : ConfirmResetFlag
     , toast : Toast
     , longPressTimerId : Maybe Process.Id
+    , zoomedToken : Maybe TokenSpec
     }
 
 
@@ -259,6 +260,7 @@ init gameId =
                     ]
             }
       , longPressTimerId = Nothing
+      , zoomedToken = Nothing
       }
     , Ports.init gameId
     )
