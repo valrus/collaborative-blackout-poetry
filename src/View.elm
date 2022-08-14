@@ -559,7 +559,7 @@ toastStyles =
     roundedBoxStyles
         ++ [ centerX
            , alignTop
-           , Background.color (rgb 0.1 0.1 0.1)
+           , Background.color (rgba 0.1 0.1 0.1 0.8)
            , Font.color (rgb 1 1 1)
            , width (fill |> maximum 500)
            , padding 20

@@ -347,7 +347,7 @@ flashMessageInModel model message =
         newStyle =
             Animation.interrupt
                 [ Animation.set [ Animation.display Animation.flex ]
-                , Animation.set [ Animation.opacity 0.8 ]
+                , Animation.set [ Animation.opacity 1.0 ]
                 , Animation.wait (millisToPosix 1000)
                 , Animation.to [ Animation.opacity 0.0 ]
                 , Animation.set [ Animation.display Animation.none ]
