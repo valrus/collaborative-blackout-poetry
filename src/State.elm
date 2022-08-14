@@ -2,6 +2,7 @@ module State exposing (..)
 
 import Animation
 import Array
+import Array.NonEmpty as NE exposing (NonEmptyArray)
 import Json.Decode as D
 import Ports
 
@@ -48,10 +49,14 @@ type alias TokenPosition =
     ( Int, Int )
 
 
-type alias Token =
+type alias SubToken =
     { content : String
     , state : TokenState
     }
+
+
+type alias Token =
+    NonEmptyArray SubToken
 
 
 type alias TextLine =

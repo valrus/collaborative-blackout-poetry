@@ -1,6 +1,7 @@
 module Subscriptions exposing (subscriptions)
 
 import Animation
+import Array.NonEmpty as NE exposing (NonEmptyArray)
 import Json.Decode as D
 import Ports
 import State exposing (..)
@@ -52,25 +53,26 @@ updatePlayerListDecoder =
 
 tokenDecoder : D.Decoder Token
 tokenDecoder =
-    D.map2 Token
-        (D.field "content" D.string)
-        (D.field "state" D.string
-            |> D.andThen
-                (\stateString ->
-                    case stateString of
-                        "default" ->
-                            D.succeed Default
+    D.map NE.fromElement <|
+        D.map2 SubToken
+            (D.field "content" D.string)
+            (D.field "state" D.string
+                |> D.andThen
+                    (\stateString ->
+                        case stateString of
+                            "default" ->
+                                D.succeed Default
 
-                        "circled" ->
-                            D.succeed Circled
+                            "circled" ->
+                                D.succeed Circled
 
-                        "obscured" ->
-                            D.succeed Obscured
+                            "obscured" ->
+                                D.succeed Obscured
 
-                        _ ->
-                            D.fail "Invalid state string"
-                )
-        )
+                            _ ->
+                                D.fail "Invalid state string"
+                    )
+            )
 
 
 poemDecoder : D.Decoder Poem

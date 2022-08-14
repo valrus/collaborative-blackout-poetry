@@ -5,6 +5,7 @@
   "scripts": {
     "start": "parcel public/index.html",
     "lint": "eslint src/index.js",
+    "build": "parcel build public/index.html",
     "build-gh": "rm docs/*; parcel build public/index.html --dist-dir docs --public-url /collaborative-blackout-poetry/"
   },
   "keywords": [],

@@ -2,6 +2,7 @@ module Main exposing (..)
 
 import Animation
 import Array
+import Array.NonEmpty as NE exposing (NonEmptyArray)
 import Browser
 import Html exposing (Html)
 import Json.Decode as D
@@ -27,13 +28,14 @@ main =
 
 makeToken : String -> Token
 makeToken s =
-    { content = s
-    , state = Default
-    }
+    NE.fromElement
+        { content = s
+        , state = Default
+        }
 
 
-makeText : String -> Poem
-makeText s =
+makePoem : String -> Poem
+makePoem s =
     (Array.fromList <| String.split "\n" s)
         |> Array.map (\line -> String.split " " line |> Array.fromList)
         |> Array.map (Array.map makeToken)
@@ -185,10 +187,14 @@ encodePlayer player =
 
 encodeToken : Token -> E.Value
 encodeToken token =
+    let
+        subToken =
+            NE.getFirst token
+    in
     E.object
-        [ ( "content", E.string token.content )
+        [ ( "content", E.string subToken.content )
         , ( "state"
-          , case token.state of
+          , case subToken.state of
                 Default ->
                     E.string "default"
 
@@ -248,7 +254,14 @@ updateTokenState tokenPosition tokenState poem =
                     poem
 
                 Just token ->
-                    Array.set lineIndex (Array.set tokenIndex { token | state = tokenState } line) poem
+                    let
+                        subToken =
+                            NE.getFirst token
+                    in
+                    Array.set
+                        lineIndex
+                        (Array.set tokenIndex (NE.fromElement { subToken | state = tokenState }) line)
+                        poem
 
 
 handleHostMsg : HostMsg -> Model -> ( Model, Cmd Msg )
@@ -268,7 +281,7 @@ handleHostMsg hostMsg model =
         StartGame ->
             let
                 poem =
-                    makeText model.textString
+                    makePoem model.textString
             in
             ( { model
                 | gamePhase = InGame poem

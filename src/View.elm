@@ -2,6 +2,7 @@ module View exposing (..)
 
 import Animation
 import Array
+import Array.NonEmpty as NE exposing (NonEmptyArray)
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -322,8 +323,11 @@ viewGuestLobby gamePhase allPlayers =
 viewToken : Bool -> GameAction -> Int -> Int -> Token -> Element Msg
 viewToken playerHasActions selectedAction lineIndex tokenIndex token =
     let
+        subToken =
+            NE.getFirst token
+
         ( textOuterAttributes, textAttributes ) =
-            case token.state of
+            case subToken.state of
                 Default ->
                     ( []
                     , []
@@ -340,7 +344,7 @@ viewToken playerHasActions selectedAction lineIndex tokenIndex token =
                     )
 
         tokenStateAfterAction =
-            case ( token.state, selectedAction ) of
+            case ( subToken.state, selectedAction ) of
                 ( Circled, ToggleCircled ) ->
                     Default
 
@@ -370,7 +374,7 @@ viewToken playerHasActions selectedAction lineIndex tokenIndex token =
                 :: pointer
                 :: textAttributes
             )
-            (text token.content)
+            (text subToken.content)
         )
 
 
@@ -385,8 +389,11 @@ viewPoemLine playerHasActions gameAction lineIndex line =
 viewEndToken : Token -> Element Msg
 viewEndToken token =
     let
+        subToken =
+            NE.getFirst token
+
         ( textOuterAttributes, textAttributes ) =
-            case token.state of
+            case subToken.state of
                 Default ->
                     ( []
                     , []
@@ -408,7 +415,7 @@ viewEndToken token =
         textOuterAttributes
         (el
             textAttributes
-            (text token.content)
+            (text subToken.content)
         )
 
 
