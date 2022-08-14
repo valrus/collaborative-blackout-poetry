@@ -8,8 +8,10 @@ import Html exposing (Html)
 import Json.Decode as D
 import Json.Encode as E
 import Ports
+import Process
 import State exposing (..)
 import Subscriptions exposing (subscriptions)
+import Task
 import Time exposing (millisToPosix)
 import View exposing (..)
 
@@ -485,6 +487,36 @@ update msg model =
 
                 _ ->
                     ( model, Cmd.none )
+
+        StartLongPressTimer tokenSpec ->
+            let
+                sleep =
+                    Process.sleep 1500
+
+                -- |> Task.andThen (always <| Task.succeed (HandleLongPress tokenSpec))
+                spawn =
+                    Process.spawn sleep
+
+                -- |> Task.andThen (always <| Task.succeed )
+                -- |> Process.spawn
+            in
+            ( model
+            , Cmd.batch
+                [ Task.perform SetLongPressTimerId spawn
+                , Task.perform (\_ -> HandleLongPress tokenSpec) sleep
+                ]
+            )
+
+        SetLongPressTimerId timerId ->
+            ( { model | longPressTimerId = Just timerId }, Cmd.none )
+
+        HandleLongPress tokenSpec ->
+            ( flashMessageInModel model "Long press happened"
+            , Cmd.none
+            )
+
+        CancelLongPressTimer ->
+            ( { model | longPressTimerId = Nothing }, Cmd.none )
 
         PassTurn ->
             case model.gamePhase of

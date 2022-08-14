@@ -371,6 +371,11 @@ viewToken playerHasActions selectedAction lineIndex tokenIndex token =
         textOuterAttributes
         (el
             (Events.onClick clickMsg
+                :: Events.onMouseDown
+                    (StartLongPressTimer <|
+                        TokenSpec token ( lineIndex, tokenIndex )
+                    )
+                :: Events.onMouseLeave CancelLongPressTimer
                 :: pointer
                 :: textAttributes
             )

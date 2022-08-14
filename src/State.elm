@@ -5,6 +5,7 @@ import Array
 import Array.NonEmpty as NE exposing (NonEmptyArray)
 import Json.Decode as D
 import Ports
+import Process
 
 
 type HostMsg
@@ -27,6 +28,10 @@ type Msg
     | SetUserName PlayerName
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
+    | StartLongPressTimer TokenSpec
+    | SetLongPressTimerId Process.Id
+    | HandleLongPress TokenSpec
+    | CancelLongPressTimer
     | PassTurn
     | SetGameAction GameAction
     | FlashMessage String
@@ -52,6 +57,12 @@ type alias TokenPosition =
 type alias SubToken =
     { content : String
     , state : TokenState
+    }
+
+
+type alias TokenSpec =
+    { token : Token
+    , position : TokenPosition
     }
 
 
@@ -159,6 +170,7 @@ type alias Model =
     , textString : String
     , confirmReset : ConfirmResetFlag
     , toast : Toast
+    , longPressTimerId : Maybe Process.Id
     }
 
 
@@ -246,6 +258,7 @@ init gameId =
                     , Animation.display Animation.none
                     ]
             }
+      , longPressTimerId = Nothing
       }
     , Ports.init gameId
     )
