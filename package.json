@@ -13,7 +13,7 @@
   "license": "ISC",
   "devDependencies": {
     "@parcel/packager-raw-url": "^2.0.0",
-    "@parcel/transformer-elm": "^2.0.0",
+    "@parcel/transformer-elm": "^2.7.0",
     "@parcel/transformer-webmanifest": "^2.0.0",
     "elm": "^0.19.1-5",
     "eslint": "^7.32.0",
@@ -22,7 +22,7 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^5.2.0",
     "events": "^3.3.0",
-    "parcel": "^2.0.0",
+    "parcel": "^2.7.0",
     "process": "^0.11.10",
     "yarn": "^1.22.17"
   },
