@@ -525,6 +525,11 @@ update msg model =
         CancelLongPressTimer ->
             ( { model | longPressTimerId = Nothing }, Cmd.none )
 
+        CancelZoom ->
+            ( { model | zoomedToken = Nothing }
+            , Cmd.none
+            )
+
         PassTurn ->
             case model.gamePhase of
                 InGame poem ->

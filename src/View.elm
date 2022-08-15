@@ -661,6 +661,24 @@ flattenPoemElements zoomedTokenSpec =
             )
 
 
+zoomScreen : Bool -> List (Attribute Msg)
+zoomScreen shouldShow =
+    case shouldShow of
+        False ->
+            []
+
+        True ->
+            [ inFront <|
+                el
+                    [ width fill
+                    , height fill
+                    , Background.color (rgba 0.5 0.5 0.5 0.5)
+                    , Events.onClick CancelZoom
+                    ]
+                    Element.none
+            ]
+
+
 viewGame : Poem -> Model -> Html Msg
 viewGame poem model =
     let
@@ -683,6 +701,7 @@ viewGame poem model =
                 :: viewRightSidebar model.gameAction (playerHasActions model)
                 :: mainColumnStyles
                 ++ poemStyles
+                ++ zoomScreen (model.zoomedToken /= Nothing)
             )
             (flattenPoemElements model.zoomedToken poemElements)
 

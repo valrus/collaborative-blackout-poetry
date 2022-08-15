@@ -32,6 +32,7 @@ type Msg
     | SetLongPressTimerId Process.Id
     | HandleLongPress TokenSpec
     | CancelLongPressTimer
+    | CancelZoom
     | PassTurn
     | SetGameAction GameAction
     | FlashMessage String
