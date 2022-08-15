@@ -28,6 +28,7 @@ type Msg
     | SetUserName PlayerName
     | ReceivedGameMessage (Result D.Error GameMessage)
     | SetTokenState TokenPosition TokenState
+      -- Long press handling
     | StartLongPressTimer TokenSpec
     | SetLongPressTimerId Process.Id
     | HandleLongPress TokenSpec

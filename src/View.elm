@@ -322,6 +322,25 @@ viewGuestLobby gamePhase allPlayers =
             ]
 
 
+tokenAttributes : TokenState -> ( List (Attribute Msg), List (Attribute Msg) )
+tokenAttributes tokenState =
+    case tokenState of
+        Default ->
+            ( []
+            , []
+            )
+
+        Circled ->
+            ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ]
+            , [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ]
+            )
+
+        Obscured ->
+            ( []
+            , [ Font.color (rgb 0.9 0.9 0.9) ]
+            )
+
+
 viewToken : Model -> Int -> Int -> Token -> Element Msg
 viewToken model lineIndex tokenIndex token =
     let
@@ -329,21 +348,7 @@ viewToken model lineIndex tokenIndex token =
             NE.getFirst token
 
         ( textOuterAttributes, textAttributes ) =
-            case subToken.state of
-                Default ->
-                    ( []
-                    , []
-                    )
-
-                Circled ->
-                    ( [ Border.glow (rgb 1.0 0.5 0.5) 2 ]
-                    , [ Border.innerGlow (rgb 1.0 0.5 0.5) 2 ]
-                    )
-
-                Obscured ->
-                    ( []
-                    , [ Font.color (rgb 0.9 0.9 0.9) ]
-                    )
+            tokenAttributes subToken.state
 
         tokenStateAfterAction =
             case ( subToken.state, model.gameAction ) of
@@ -598,15 +603,24 @@ viewPoem model poem =
         poem
 
 
+zoomedChar : ( Char, TokenState ) -> Element Msg
+zoomedChar ( char, tokenState ) =
+    el
+        [ htmlAttribute (HtmlAttributes.style "cursor" "pointer")
+        ]
+        (text <| String.fromChar char)
+
+
 zoomedTokenElement : Token -> Element Msg
 zoomedTokenElement token =
     let
-        subToken =
-            NE.getFirst token
+        subtokens =
+            NE.toList token
     in
     el
         [ Background.color (rgb 1 1 1)
         , padding 16
+        , Font.family [ Font.monospace ]
         , Font.size 40
         , centerX
         , moveUp 23
@@ -615,7 +629,18 @@ zoomedTokenElement token =
         , Border.color (rgb 0.5 0.5 0.5)
         , htmlAttribute <| HtmlAttributes.style "z-index" "50"
         ]
-        (text subToken.content)
+    <|
+        row
+            []
+            (List.concatMap
+                (\subtoken ->
+                    List.map
+                        (\char -> ( char, subtoken.state ))
+                        (String.toList subtoken.content)
+                )
+                subtokens
+                |> List.map zoomedChar
+            )
 
 
 tokenWithZoom : Maybe TokenSpec -> Int -> ( Int, Element Msg ) -> Element Msg
@@ -672,7 +697,7 @@ zoomScreen shouldShow =
                 el
                     [ width fill
                     , height fill
-                    , Background.color (rgba 0.5 0.5 0.5 0.5)
+                    , Background.color (rgba 1.0 1.0 1.0 0.5)
                     , Events.onClick CancelZoom
                     ]
                     Element.none
