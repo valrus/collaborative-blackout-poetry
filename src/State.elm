@@ -2,10 +2,11 @@ module State exposing (..)
 
 import Animation
 import Array
-import Array.NonEmpty as NE exposing (NonEmptyArray)
+import Array.NonEmpty exposing (NonEmptyArray)
 import Json.Decode as D
 import Ports
 import Process
+import Util exposing (IndexRange)
 
 
 type HostMsg
@@ -27,18 +28,23 @@ type Msg
     | SetHostIdForGuest GameId
     | SetUserName PlayerName
     | ReceivedGameMessage (Result D.Error GameMessage)
+    | EndGame
+      -- Game actions
+    | PassTurn
+    | SetGameAction GameAction
     | SetTokenState TokenPosition TokenState
       -- Long press handling
     | StartLongPressTimer TokenSpec
     | SetLongPressTimerId Process.Id
     | HandleLongPress TokenSpec
+    | CharSelectStart Int
+    | CharSelectDrag Int
+    | CharSelectEnd
     | CancelLongPressTimer
     | CancelZoom
-    | PassTurn
-    | SetGameAction GameAction
+      --
     | FlashMessage String
     | AnimateToast Animation.Msg
-    | EndGame
 
 
 
@@ -174,6 +180,7 @@ type alias Model =
     , toast : Toast
     , longPressTimerId : Maybe Process.Id
     , zoomedToken : Maybe TokenSpec
+    , zoomedTokenRange : Maybe IndexRange
     }
 
 
@@ -263,6 +270,7 @@ init gameId =
             }
       , longPressTimerId = Nothing
       , zoomedToken = Nothing
+      , zoomedTokenRange = Nothing
       }
     , Ports.init gameId
     )

@@ -2,7 +2,7 @@ module View exposing (..)
 
 import Animation
 import Array
-import Array.NonEmpty as NE exposing (NonEmptyArray)
+import Array.NonEmpty as NE
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -12,7 +12,7 @@ import Element.Input as Input
 import Html exposing (Html)
 import Html.Attributes as HtmlAttributes
 import State exposing (..)
-import Tuple
+import Util exposing (IndexRange, indexRangeIncludes)
 
 
 sides =
@@ -213,9 +213,8 @@ viewIntro player toast =
             , conditionalButton
                 { msg = HostMsg ShowHostOptions
                 , isEnabled =
-                    (&&)
-                        (not (String.isEmpty <| nameOfPlayer player))
-                        (String.isEmpty <| Maybe.withDefault "" gameId)
+                    not (String.isEmpty <| nameOfPlayer player)
+                        && (String.isEmpty <| Maybe.withDefault "" gameId)
                 , labelText = "Host game"
                 }
             , Input.text
@@ -252,8 +251,8 @@ viewLeftSidebar allPlayers =
         (column
             [ width (px 200), spacing 20, padding 20, Font.family [ Font.sansSerif ] ]
          <|
-            [ resetToIntroButton ]
-                ++ (if List.isEmpty allPlayers then
+            resetToIntroButton
+                :: (if List.isEmpty allPlayers then
                         []
 
                     else
@@ -365,12 +364,11 @@ viewToken model lineIndex tokenIndex token =
                     Obscured
 
         clickMsg =
-            case playerHasActions model of
-                True ->
-                    SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction
+            if playerHasActions model then
+                SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction
 
-                False ->
-                    FlashMessage "Out of actions!"
+            else
+                FlashMessage "Out of actions!"
     in
     el
         -- We need an extra wrapper for both outer and inner glow; see
@@ -486,12 +484,11 @@ viewRightSidebar : GameAction -> Bool -> Element.Attribute Msg
 viewRightSidebar selectedAction hasActions =
     let
         baseButtonStyles =
-            case hasActions of
-                False ->
-                    alpha 0.5 :: Border.width 2 :: roundedBoxStyles
+            if hasActions then
+                Border.width 2 :: roundedBoxStyles
 
-                True ->
-                    Border.width 2 :: roundedBoxStyles
+            else
+                alpha 0.5 :: Border.width 2 :: roundedBoxStyles
 
         actionButtonStyles optionState =
             case optionState of
@@ -603,16 +600,36 @@ viewPoem model poem =
         poem
 
 
-zoomedChar : ( Char, TokenState ) -> Element Msg
-zoomedChar ( char, tokenState ) =
+zoomedChar : Maybe IndexRange -> Int -> ( Char, TokenState ) -> Element Msg
+zoomedChar selectedCharRange charIndex ( char, tokenState ) =
+    let
+        selected =
+            case selectedCharRange of
+                Nothing ->
+                    False
+
+                Just selection ->
+                    indexRangeIncludes selection charIndex
+    in
     el
-        [ htmlAttribute (HtmlAttributes.style "cursor" "pointer")
-        ]
+        ([ htmlAttribute (HtmlAttributes.style "cursor" "pointer")
+         , htmlAttribute (HtmlAttributes.style "user-select" "none")
+         , Events.onMouseDown <| CharSelectStart charIndex
+         , Events.onMouseMove <| CharSelectDrag charIndex
+         , Events.onMouseUp <| CharSelectEnd
+         ]
+            ++ (if selected then
+                    [ Background.color (rgb 0.5 0.5 1.0) ]
+
+                else
+                    []
+               )
+        )
         (text <| String.fromChar char)
 
 
-zoomedTokenElement : Token -> Element Msg
-zoomedTokenElement token =
+zoomedTokenElement : Maybe IndexRange -> Token -> Element Msg
+zoomedTokenElement selectedCharRange token =
     let
         subtokens =
             NE.toList token
@@ -639,12 +656,12 @@ zoomedTokenElement token =
                         (String.toList subtoken.content)
                 )
                 subtokens
-                |> List.map zoomedChar
+                |> List.indexedMap (zoomedChar selectedCharRange)
             )
 
 
-tokenWithZoom : Maybe TokenSpec -> Int -> ( Int, Element Msg ) -> Element Msg
-tokenWithZoom maybeTokenSpec lineIndex indexedTokenElement =
+tokenWithZoom : Maybe TokenSpec -> Maybe IndexRange -> Int -> ( Int, Element Msg ) -> Element Msg
+tokenWithZoom maybeTokenSpec selectedCharRange lineIndex indexedTokenElement =
     let
         ( tokenIndex, tokenElement ) =
             indexedTokenElement
@@ -662,7 +679,7 @@ tokenWithZoom maybeTokenSpec lineIndex indexedTokenElement =
                 -- Need to add a z-index because the inFront won't be in front of other tokens
                 -- https://github.com/mdgriffith/elm-ui/issues/242
                 el
-                    [ inFront (zoomedTokenElement token)
+                    [ inFront (zoomedTokenElement selectedCharRange token)
                     ]
                     tokenElement
 
@@ -670,8 +687,8 @@ tokenWithZoom maybeTokenSpec lineIndex indexedTokenElement =
                 tokenElement
 
 
-flattenPoemElements : Maybe TokenSpec -> Array.Array (Array.Array (Element Msg)) -> List (Element Msg)
-flattenPoemElements zoomedTokenSpec =
+flattenPoemElements : Maybe TokenSpec -> Maybe IndexRange -> Array.Array (Array.Array (Element Msg)) -> List (Element Msg)
+flattenPoemElements zoomedTokenSpec selectedCharRange =
     Array.toList
         >> List.indexedMap
             (\lineIndex line ->
@@ -680,7 +697,7 @@ flattenPoemElements zoomedTokenSpec =
                     (List.intersperse
                         (el [] (text " "))
                         (Array.toIndexedList line
-                            |> List.map (tokenWithZoom zoomedTokenSpec lineIndex)
+                            |> List.map (tokenWithZoom zoomedTokenSpec selectedCharRange lineIndex)
                         )
                     )
             )
@@ -688,20 +705,19 @@ flattenPoemElements zoomedTokenSpec =
 
 zoomScreen : Bool -> List (Attribute Msg)
 zoomScreen shouldShow =
-    case shouldShow of
-        False ->
-            []
+    if shouldShow then
+        [ inFront <|
+            el
+                [ width fill
+                , height fill
+                , Background.color (rgba 1.0 1.0 1.0 0.5)
+                , Events.onClick CancelZoom
+                ]
+                Element.none
+        ]
 
-        True ->
-            [ inFront <|
-                el
-                    [ width fill
-                    , height fill
-                    , Background.color (rgba 1.0 1.0 1.0 0.5)
-                    , Events.onClick CancelZoom
-                    ]
-                    Element.none
-            ]
+    else
+        []
 
 
 viewGame : Poem -> Model -> Html Msg
@@ -711,9 +727,8 @@ viewGame poem model =
             viewPoem model poem
     in
     layout
-        ([ padding 20
-         ]
-            ++ (if model.confirmReset then
+        (padding 20
+            :: (if model.confirmReset then
                     [ viewConfirmModal model.player ]
 
                 else
@@ -728,7 +743,7 @@ viewGame poem model =
                 ++ poemStyles
                 ++ zoomScreen (model.zoomedToken /= Nothing)
             )
-            (flattenPoemElements model.zoomedToken poemElements)
+            (flattenPoemElements model.zoomedToken model.zoomedTokenRange poemElements)
 
 
 getAllPlayers : Model -> AllPlayersList

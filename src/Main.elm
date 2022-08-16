@@ -2,13 +2,13 @@ module Main exposing (..)
 
 import Animation
 import Array
-import Array.NonEmpty as NE exposing (NonEmptyArray)
+import Array.NonEmpty as NE
 import Browser
 import Html exposing (Html)
-import Json.Decode as D
 import Json.Encode as E
 import Ports
 import Process
+import Range
 import State exposing (..)
 import Subscriptions exposing (subscriptions)
 import Task
@@ -521,6 +521,20 @@ update msg model =
 
                 Nothing ->
                     ( model, Cmd.none )
+
+        CharSelectStart charIndex ->
+            ( { model | zoomedTokenRange = Just { start = charIndex, end = charIndex } }, Cmd.none )
+
+        CharSelectDrag charIndex ->
+            case model.zoomedTokenRange of
+                Nothing ->
+                    ( model, Cmd.none )
+
+                Just prevRange ->
+                    ( { model | zoomedTokenRange = Just { prevRange | end = charIndex } }, Cmd.none )
+
+        CharSelectEnd ->
+            ( { model | zoomedTokenRange = Nothing }, Cmd.none )
 
         CancelLongPressTimer ->
             ( { model | longPressTimerId = Nothing }, Cmd.none )
