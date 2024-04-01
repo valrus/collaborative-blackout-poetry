@@ -612,8 +612,9 @@ zoomedChar selectedCharRange charIndex ( char, tokenState ) =
                     indexRangeIncludes selection charIndex
     in
     el
-        ([ htmlAttribute (HtmlAttributes.style "cursor" "pointer")
+        ([ pointer
          , htmlAttribute (HtmlAttributes.style "user-select" "none")
+         , htmlAttribute (HtmlAttributes.style "-webkit-user-select" "none")
          , Events.onMouseDown <| CharSelectStart charIndex
          , Events.onMouseMove <| CharSelectDrag charIndex
          , Events.onMouseUp <| CharSelectEnd
