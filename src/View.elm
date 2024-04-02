@@ -263,10 +263,6 @@ viewLeftSidebar allPlayers =
 
 viewHostOptions : String -> GameId -> AllPlayersList -> Html Msg
 viewHostOptions textString gameId allPlayers =
-    let
-        validPoemText =
-            isValidPoemString textString
-    in
     layout [ padding 20 ] <|
         column
             (mainColumnStyles
@@ -340,16 +336,13 @@ tokenAttributes tokenState =
             )
 
 
-viewToken : Model -> Int -> Int -> Token -> Element Msg
-viewToken model lineIndex tokenIndex token =
+viewSubToken : Model -> TokenSpec -> Int -> SubToken -> Element Msg
+viewSubToken model parentTokenSpec subTokenIndex subToken =
     let
-        subToken =
-            NE.getFirst token
-
         ( textOuterAttributes, textAttributes ) =
             tokenAttributes subToken.state
 
-        tokenStateAfterAction =
+        stateAfterAction =
             case ( subToken.state, model.gameAction ) of
                 ( Circled, ToggleCircled ) ->
                     Default
@@ -363,9 +356,13 @@ viewToken model lineIndex tokenIndex token =
                 ( _, ToggleObscured ) ->
                     Obscured
 
+        tokenAfterAction =
+            NE.set subTokenIndex { subToken | state = stateAfterAction } parentTokenSpec.token
+
         clickMsg =
             if playerHasActions model then
-                SetTokenState ( lineIndex, tokenIndex ) tokenStateAfterAction
+                -- TODO: set subtoken state
+                SetToken parentTokenSpec.position tokenAfterAction
 
             else
                 FlashMessage "Out of actions!"
@@ -377,15 +374,29 @@ viewToken model lineIndex tokenIndex token =
         (el
             (Events.onClick clickMsg
                 :: Events.onMouseDown
-                    (StartLongPressTimer <|
-                        TokenSpec token ( lineIndex, tokenIndex )
-                    )
+                    (StartLongPressTimer parentTokenSpec)
                 :: Events.onMouseLeave CancelLongPressTimer
                 :: pointer
                 :: textAttributes
             )
             (text subToken.content)
         )
+
+
+viewToken : Model -> Int -> Int -> Token -> Element Msg
+viewToken model lineIndex tokenIndex token =
+    paragraph
+         []
+         (List.indexedMap
+              (viewSubToken model (TokenSpec token ( lineIndex, tokenIndex )))
+              (NE.toList token)
+         )
+
+
+-- viewToken : Model -> Int -> Int -> Token -> Element Msg
+-- viewToken model lineIndex tokenIndex token =
+--         (viewSubToken model (TokenSpec token ( lineIndex, tokenIndex )) 1 (NE.getFirst token))
+
 
 
 viewPoemLine : Model -> Int -> TextLine -> Array.Array (Element Msg)
@@ -476,7 +487,7 @@ viewConfirmModal player =
 
 
 flashMessageOnChange : String -> GameAction -> Msg
-flashMessageOnChange message gameAction =
+flashMessageOnChange message _ =
     FlashMessage message
 
 

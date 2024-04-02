@@ -32,7 +32,7 @@ type Msg
       -- Game actions
     | PassTurn
     | SetGameAction GameAction
-    | SetTokenState TokenPosition TokenState
+    | SetToken TokenPosition Token
       -- Long press handling
     | StartLongPressTimer TokenSpec
     | SetLongPressTimerId Process.Id

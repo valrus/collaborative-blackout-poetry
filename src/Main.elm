@@ -240,8 +240,8 @@ encodeGameMsg gameMsg =
             E.object [ ( "disconnection", Maybe.withDefault E.null (Maybe.map E.string hostOrPlayerName) ) ]
 
 
-updateTokenState : TokenPosition -> TokenState -> Poem -> Poem
-updateTokenState tokenPosition tokenState poem =
+updateTokenState : TokenPosition -> Token -> Poem -> Poem
+updateTokenState tokenPosition newToken poem =
     let
         ( lineIndex, tokenIndex ) =
             tokenPosition
@@ -256,13 +256,9 @@ updateTokenState tokenPosition tokenState poem =
                     poem
 
                 Just token ->
-                    let
-                        subToken =
-                            NE.getFirst token
-                    in
                     Array.set
                         lineIndex
-                        (Array.set tokenIndex (NE.fromElement { subToken | state = tokenState }) line)
+                        (Array.set tokenIndex newToken line)
                         poem
 
 
@@ -411,7 +407,7 @@ update msg model =
             ( { model | confirmReset = False }, Cmd.none )
 
         -- game state changes
-        ReceivedGameMessage (Err err) ->
+        ReceivedGameMessage (Err _) ->
             ( flashMessageInModel model "Invalid game message received", Cmd.none )
 
         ReceivedGameMessage (Ok gameMsg) ->
@@ -425,15 +421,15 @@ update msg model =
 
                 cmd =
                     case ( newModel.player, gameMsg ) of
-                        ( Host _, GuestJoined playerName ) ->
+                        ( Host _, GuestJoined _ ) ->
                             -- forward the whole player list out
                             Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
 
-                        ( Host _, Disconnection playerName ) ->
+                        ( Host _, Disconnection _ ) ->
                             -- forward the whole player list out
                             Ports.sendAsHost (encodeGameMsg <| UpdatePlayerList allPlayers)
 
-                        ( Host _, GameAction poem allPlayersList ) ->
+                        ( Host _, GameAction poem _ ) ->
                             case newModel.gamePhase of
                                 GameOver endPoem ->
                                     -- forward the received message
@@ -456,12 +452,12 @@ update msg model =
             in
             ( newModel, cmd )
 
-        SetTokenState tokenPosition tokenState ->
+        SetToken tokenPosition token ->
             case model.gamePhase of
                 InGame poem ->
                     let
                         newPoem =
-                            updateTokenState tokenPosition tokenState poem
+                            updateTokenState tokenPosition token poem
 
                         modelWithActionDeducted =
                             { model | player = deductAction model.player }
