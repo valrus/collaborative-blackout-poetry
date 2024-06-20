@@ -2,10 +2,10 @@ module Main exposing (..)
 
 import Animation
 import Array
-import Array.NonEmpty as NE
 import Browser
 import Html exposing (Html)
 import Json.Encode as E
+import List.Nonempty as NE exposing (Nonempty)
 import Ports
 import Process
 import Range
@@ -13,6 +13,7 @@ import State exposing (..)
 import Subscriptions exposing (subscriptions)
 import Task
 import Time exposing (millisToPosix)
+import Util exposing (indexRangeEncompasses, indexRangeIncludes, toSlice)
 import View exposing (..)
 
 
@@ -30,10 +31,16 @@ main =
 
 makeToken : String -> Token
 makeToken s =
-    NE.fromElement
-        { content = s
-        , state = Default
-        }
+    { content = s
+    , subtokens =
+        NE.singleton
+            { state = Default
+            , slice =
+                { start = 0
+                , end = String.length s
+                }
+            }
+    }
 
 
 makePoem : String -> Poem
@@ -189,22 +196,32 @@ encodePlayer player =
 
 encodeToken : Token -> E.Value
 encodeToken token =
-    let
-        subToken =
-            NE.getFirst token
-    in
     E.object
-        [ ( "content", E.string subToken.content )
-        , ( "state"
-          , case subToken.state of
-                Default ->
-                    E.string "default"
+        [ ( "content", E.string token.content )
+        , ( "subtokens"
+          , E.list
+                (\subtoken ->
+                    E.object
+                        [ ( "slice"
+                          , E.object
+                                [ ( "start", E.int subtoken.slice.start )
+                                , ( "end", E.int subtoken.slice.end )
+                                ]
+                          )
+                        , ( "state"
+                          , case subtoken.state of
+                                Default ->
+                                    E.string "default"
 
-                Circled ->
-                    E.string "circled"
+                                Circled ->
+                                    E.string "circled"
 
-                Obscured ->
-                    E.string "obscured"
+                                Obscured ->
+                                    E.string "obscured"
+                          )
+                        ]
+                )
+                (NE.toList token.subtokens)
           )
         ]
 
@@ -240,8 +257,8 @@ encodeGameMsg gameMsg =
             E.object [ ( "disconnection", Maybe.withDefault E.null (Maybe.map E.string hostOrPlayerName) ) ]
 
 
-updateTokenState : TokenPosition -> Token -> Poem -> Poem
-updateTokenState tokenPosition newToken poem =
+updatePoemWithToken : TokenPosition -> Token -> Poem -> Poem
+updatePoemWithToken tokenPosition newToken poem =
     let
         ( lineIndex, tokenIndex ) =
             tokenPosition
@@ -255,7 +272,7 @@ updateTokenState tokenPosition newToken poem =
                 Nothing ->
                     poem
 
-                Just token ->
+                Just _ ->
                     Array.set
                         lineIndex
                         (Array.set tokenIndex newToken line)
@@ -351,6 +368,58 @@ flashMessageInModel model message =
                 toast.style
     in
     { model | toast = { toast | style = newStyle, message = message } }
+
+
+adjustSubtokenWithWodge : Subtoken -> Subtoken -> List Subtoken
+adjustSubtokenWithWodge subtoken wodge =
+    if indexRangeEncompasses wodge.slice subtoken.slice then
+        -- new subtoken contains this one, so replace it
+        []
+
+    else if indexRangeEncompasses subtoken.slice wodge.slice then
+        -- this subtoken contains the new one, so split it into before and after
+        [ { slice = { start = subtoken.slice.start, end = wodge.slice.start }
+          , state = subtoken.state
+          }
+        , { slice = { start = wodge.slice.end, end = subtoken.slice.end }
+          , state = subtoken.state
+          }
+        ]
+
+    else if indexRangeIncludes wodge.slice subtoken.slice.end then
+        -- new subtoken contains end of this one, so shorten it
+        [ { slice = { start = wodge.slice.start, end = subtoken.slice.start }
+          , state = subtoken.state
+          }
+        ]
+
+    else if indexRangeIncludes wodge.slice subtoken.slice.start then
+        -- new subtoken contains beginning of this one, so shorten it
+        [ { slice = { start = wodge.slice.end, end = subtoken.slice.end }
+          , state = subtoken.state
+          }
+        ]
+
+    else
+        [ subtoken ]
+
+
+updateTokenWithSubtoken : TokenSpec -> Subtoken -> TokenSpec
+updateTokenWithSubtoken tokenSpec updatedSubtoken =
+    let
+        adjustedSubtokens =
+            List.concatMap
+                (\subtoken -> adjustSubtokenWithWodge subtoken updatedSubtoken)
+                (NE.toList tokenSpec.token.subtokens)
+
+        newSubtokens =
+            NE.sortBy
+                (.slice >> .start)
+                (NE.Nonempty updatedSubtoken adjustedSubtokens)
+    in
+    { token = { content = tokenSpec.token.content, subtokens = newSubtokens }
+    , position = tokenSpec.position
+    }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -457,7 +526,7 @@ update msg model =
                 InGame poem ->
                     let
                         newPoem =
-                            updateTokenState tokenPosition token poem
+                            updatePoemWithToken tokenPosition token poem
 
                         modelWithActionDeducted =
                             { model | player = deductAction model.player }
@@ -519,7 +588,11 @@ update msg model =
                     ( model, Cmd.none )
 
         CharSelectStart charIndex ->
-            ( { model | zoomedTokenRange = Just { start = charIndex, end = charIndex } }, Cmd.none )
+            ( { model
+                | zoomedTokenRange = Just { start = charIndex, end = charIndex }
+              }
+            , Cmd.none
+            )
 
         CharSelectDrag charIndex ->
             case model.zoomedTokenRange of
@@ -527,10 +600,56 @@ update msg model =
                     ( model, Cmd.none )
 
                 Just prevRange ->
-                    ( { model | zoomedTokenRange = Just { prevRange | end = charIndex } }, Cmd.none )
+                    ( { model
+                        | zoomedTokenRange = Just { prevRange | end = charIndex }
+                      }
+                    , Cmd.none
+                    )
 
         CharSelectEnd ->
-            ( { model | zoomedTokenRange = Nothing }, Cmd.none )
+            case ( model.gamePhase, model.zoomedToken, model.zoomedTokenRange ) of
+                ( InGame poem, Just zoomedTokenSpec, Just zoomedTokenRange ) ->
+                    let
+                        newSubToken =
+                            { slice = toSlice zoomedTokenRange
+                            , state = updateTokenState model.gameAction Default
+                            }
+
+                        newTokenSpec =
+                            -- TODO need to update state of subtoken with gameAction
+                            updateTokenWithSubtoken zoomedTokenSpec newSubToken
+
+                        newPoem =
+                            updatePoemWithToken newTokenSpec.position newTokenSpec.token poem
+
+                        modelWithActionDeducted =
+                            { model | player = deductAction model.player }
+
+                        newModel =
+                            case model.player of
+                                Host _ ->
+                                    updateModelFromGameActions
+                                        modelWithActionDeducted
+                                        newPoem
+                                        (getAllPlayers modelWithActionDeducted)
+
+                                Guest _ _ ->
+                                    -- guests should never replenish actions themselves but wait
+                                    -- for a message from the host
+                                    modelWithActionDeducted
+                    in
+                    ( { newModel
+                        | longPressTimerId = Nothing
+                        , zoomedTokenRange = Nothing
+                        , zoomedToken = Nothing
+                      }
+                    , sendForRole
+                        newModel.player
+                        (encodeGameMsg <| GameAction newPoem (getAllPlayers newModel))
+                    )
+
+                ( _, _, _ ) ->
+                    ( model, Cmd.none )
 
         CancelLongPressTimer ->
             ( { model | longPressTimerId = Nothing }, Cmd.none )

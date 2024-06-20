@@ -2,7 +2,6 @@ module View exposing (..)
 
 import Animation
 import Array
-import Array.NonEmpty as NE
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -11,6 +10,7 @@ import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
 import Html.Attributes as HtmlAttributes
+import List.Nonempty as NE
 import State exposing (..)
 import Util exposing (IndexRange, indexRangeIncludes)
 
@@ -336,33 +336,34 @@ tokenAttributes tokenState =
             )
 
 
-viewSubToken : Model -> TokenSpec -> Int -> SubToken -> Element Msg
-viewSubToken model parentTokenSpec subTokenIndex subToken =
+viewSubtoken : Model -> TokenSpec -> Int -> Subtoken -> Element Msg
+viewSubtoken model parentTokenSpec subtokenIndex subtoken =
     let
         ( textOuterAttributes, textAttributes ) =
-            tokenAttributes subToken.state
+            tokenAttributes subtoken.state
+
+        token =
+            parentTokenSpec.token
 
         stateAfterAction =
-            case ( subToken.state, model.gameAction ) of
-                ( Circled, ToggleCircled ) ->
-                    Default
+            updateTokenState model.gameAction subtoken.state
 
-                ( Obscured, ToggleObscured ) ->
-                    Default
+        subtokensAfterAction =
+            NE.indexedMap
+                (\i x ->
+                    if i == subtokenIndex then
+                        { x | state = stateAfterAction }
 
-                ( _, ToggleCircled ) ->
-                    Circled
-
-                ( _, ToggleObscured ) ->
-                    Obscured
-
-        tokenAfterAction =
-            NE.set subTokenIndex { subToken | state = stateAfterAction } parentTokenSpec.token
+                    else
+                        x
+                )
+                token.subtokens
 
         clickMsg =
             if playerHasActions model then
                 -- TODO: set subtoken state
-                SetToken parentTokenSpec.position tokenAfterAction
+                SetToken parentTokenSpec.position
+                    { token | subtokens = subtokensAfterAction }
 
             else
                 FlashMessage "Out of actions!"
@@ -379,24 +380,18 @@ viewSubToken model parentTokenSpec subTokenIndex subToken =
                 :: pointer
                 :: textAttributes
             )
-            (text subToken.content)
+            (text (subtokenize subtoken parentTokenSpec.token.content))
         )
 
 
 viewToken : Model -> Int -> Int -> Token -> Element Msg
 viewToken model lineIndex tokenIndex token =
     paragraph
-         []
-         (List.indexedMap
-              (viewSubToken model (TokenSpec token ( lineIndex, tokenIndex )))
-              (NE.toList token)
-         )
-
-
--- viewToken : Model -> Int -> Int -> Token -> Element Msg
--- viewToken model lineIndex tokenIndex token =
---         (viewSubToken model (TokenSpec token ( lineIndex, tokenIndex )) 1 (NE.getFirst token))
-
+        []
+        (List.indexedMap
+            (viewSubtoken model (TokenSpec token ( lineIndex, tokenIndex )))
+            (NE.toList token.subtokens)
+        )
 
 
 viewPoemLine : Model -> Int -> TextLine -> Array.Array (Element Msg)
@@ -409,11 +404,12 @@ viewPoemLine model lineIndex line =
 viewEndToken : Token -> Element Msg
 viewEndToken token =
     let
-        subToken =
-            NE.getFirst token
+        -- TODO this assumes one token, need to fix
+        subtoken =
+            NE.head token.subtokens
 
         ( textOuterAttributes, textAttributes ) =
-            case subToken.state of
+            case subtoken.state of
                 Default ->
                     ( []
                     , []
@@ -435,7 +431,7 @@ viewEndToken token =
         textOuterAttributes
         (el
             textAttributes
-            (text subToken.content)
+            (text token.content)
         )
 
 
@@ -644,7 +640,7 @@ zoomedTokenElement : Maybe IndexRange -> Token -> Element Msg
 zoomedTokenElement selectedCharRange token =
     let
         subtokens =
-            NE.toList token
+            NE.toList token.subtokens
     in
     el
         [ Background.color (rgb 1 1 1)
@@ -665,7 +661,7 @@ zoomedTokenElement selectedCharRange token =
                 (\subtoken ->
                     List.map
                         (\char -> ( char, subtoken.state ))
-                        (String.toList subtoken.content)
+                        (String.toList <| subtokenize subtoken token.content)
                 )
                 subtokens
                 |> List.indexedMap (zoomedChar selectedCharRange)

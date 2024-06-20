@@ -2,11 +2,11 @@ module State exposing (..)
 
 import Animation
 import Array
-import Array.NonEmpty exposing (NonEmptyArray)
 import Json.Decode as D
+import List.Nonempty exposing (Nonempty)
 import Ports
 import Process
-import Util exposing (IndexRange)
+import Util exposing (IndexRange, IndexSlice)
 
 
 type HostMsg
@@ -62,8 +62,8 @@ type alias TokenPosition =
     ( Int, Int )
 
 
-type alias SubToken =
-    { content : String
+type alias Subtoken =
+    { slice : IndexSlice
     , state : TokenState
     }
 
@@ -74,8 +74,15 @@ type alias TokenSpec =
     }
 
 
+
+-- should this be a list of strings with states?
+-- or a single string and a list of records with indexes and states?
+
+
 type alias Token =
-    NonEmptyArray SubToken
+    { content : String
+    , subtokens : Nonempty Subtoken
+    }
 
 
 type alias TextLine =
@@ -240,6 +247,27 @@ dataForPlayer player =
 getOtherPlayers : AllPlayersList -> Player -> OtherPlayersList
 getOtherPlayers allPlayers currentPlayer =
     List.filter (\player -> nameOfPlayer player /= nameOfPlayer currentPlayer) allPlayers
+
+
+subtokenize : Subtoken -> String -> String
+subtokenize subtoken =
+    String.slice subtoken.slice.start subtoken.slice.end
+
+
+updateTokenState : GameAction -> TokenState -> TokenState
+updateTokenState action state =
+    case ( state, action ) of
+        ( Circled, ToggleCircled ) ->
+            Default
+
+        ( Obscured, ToggleObscured ) ->
+            Default
+
+        ( _, ToggleCircled ) ->
+            Circled
+
+        ( _, ToggleObscured ) ->
+            Obscured
 
 
 

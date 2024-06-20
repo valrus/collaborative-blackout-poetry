@@ -1,10 +1,11 @@
 module Subscriptions exposing (subscriptions)
 
 import Animation
-import Array.NonEmpty as NE exposing (NonEmptyArray)
 import Json.Decode as D
+import List.Nonempty as NE
 import Ports
 import State exposing (..)
+import Util exposing (IndexRange)
 
 
 
@@ -36,12 +37,11 @@ playerDecoder =
     D.field "isHost" D.bool
         |> D.andThen
             (\isHost ->
-                case isHost of
-                    False ->
-                        D.map2 Guest playerDataDecoder (D.succeed Nothing)
+                if isHost then
+                    D.map2 Guest playerDataDecoder (D.succeed Nothing)
 
-                    True ->
-                        D.map Host playerDataDecoder
+                else
+                    D.map Host playerDataDecoder
             )
 
 
@@ -53,26 +53,42 @@ updatePlayerListDecoder =
 
 tokenDecoder : D.Decoder Token
 tokenDecoder =
-    D.map NE.fromElement <|
-        D.map2 SubToken
-            (D.field "content" D.string)
-            (D.field "state" D.string
-                |> D.andThen
-                    (\stateString ->
-                        case stateString of
-                            "default" ->
-                                D.succeed Default
-
-                            "circled" ->
-                                D.succeed Circled
-
-                            "obscured" ->
-                                D.succeed Obscured
-
-                            _ ->
-                                D.fail "Invalid state string"
+    D.map2 Token
+        (D.field "content" D.string)
+        (D.field "subtokens" <|
+            -- TODO handle multiple subtokens
+            D.map NE.singleton
+            <|
+                D.map2 Subtoken
+                    (D.field "range" <|
+                        D.map2 IndexRange
+                            (D.field "start" D.int)
+                            (D.field "end" D.int)
                     )
-            )
+                    (D.field "state" D.string
+                        |> D.andThen
+                            (\stateString ->
+                                case stateString of
+                                    "default" ->
+                                        D.succeed Default
+
+                                    "circled" ->
+                                        D.succeed Circled
+
+                                    "obscured" ->
+                                        D.succeed Obscured
+
+                                    _ ->
+                                        D.fail "Invalid state string"
+                            )
+                    )
+        )
+
+
+
+-- D.map NE.singleton <|
+--     D.map2 SubToken
+--         (D.field "content" D.string)
 
 
 poemDecoder : D.Decoder Poem
