@@ -26,6 +26,6 @@
     "yarn": "^1.22.22"
   },
   "dependencies": {
-    "peerjs": "^1.5.2"
+    "peerjs": "^1.5.4"
   }
 }
